@@ -4,7 +4,7 @@ use crate::{
     header::{FILEHEADERSIZE, FileHeader, MAGIC, VERSION},
     oit::{OIT_ENTRY_SIZE, OitEntry},
 };
-use bytemuck::{bytes_of, from_bytes};
+use bytemuck::from_bytes;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Read, Seek, SeekFrom};
 
@@ -17,8 +17,7 @@ pub struct ReelReader {
 impl ReelReader {
     pub fn open(path: &str) -> ReelResult<Self> {
         let file = OpenOptions::new().read(true).open(path)?;
-
-        let mut inner = BufReader::new(file);
+        let mut inner = BufReader::with_capacity(64 * 1024 * 1024, file);
 
         // read and validate file header
         let mut hdr_buf = [0u8; FILEHEADERSIZE];
@@ -50,28 +49,27 @@ impl ReelReader {
         Ok(Self { inner, header, oit })
     }
 
-    // O(1) random frame access
     pub fn read_frame(&mut self, index: u64) -> ReelResult<YuvFrame> {
-        // bounds check
-        let entry = self
+        // copy offset out immediately so borrow on self.oit ends before self.inner is used
+        let byte_offset = self
             .oit
             .get(index as usize)
-            .ok_or(ReelError::FrameOutOfBounds(index, self.header.total_frames))?;
+            .ok_or(ReelError::FrameOutOfBounds(index, self.header.total_frames))?
+            .byte_offset;
 
-        // seek to frame
-        self.inner.seek(SeekFrom::Start(entry.byte_offset))?;
+        self.inner.seek(SeekFrom::Start(byte_offset))?;
 
         // read frame header
         let mut hdr_buf = [0u8; FRAME_HEADER_SIZE];
         self.inner.read_exact(&mut hdr_buf)?;
         let frame_header = *from_bytes::<FrameHeader>(&hdr_buf);
 
-        // validate index field matches what we requested
+        // corruption check
         if frame_header.index != index {
             return Err(ReelError::CorruptOit);
         }
 
-        // read compressed planes
+        // read compressed planes using sizes from frame header
         let mut ydata = vec![0u8; frame_header.ylen as usize];
         let mut udata = vec![0u8; frame_header.ulen as usize];
         let mut vdata = vec![0u8; frame_header.vlen as usize];
@@ -80,7 +78,7 @@ impl ReelReader {
         self.inner.read_exact(&mut udata)?;
         self.inner.read_exact(&mut vdata)?;
 
-        // decompress
+        // decompress in place
         let mut frame = YuvFrame::new(frame_header, ydata, udata, vdata);
         frame.decompress()?;
 
@@ -91,15 +89,11 @@ impl ReelReader {
         if self.header.audio_offset == 0 {
             return Ok(None);
         }
-
         self.inner.seek(SeekFrom::Start(self.header.audio_offset))?;
-
-        let sample_count = self.header.audio_size / 4; // f32 = 4 bytes
+        let sample_count = self.header.audio_size / 4;
         let mut samples = vec![0f32; sample_count as usize];
-
         let bytes = bytemuck::cast_slice_mut::<f32, u8>(&mut samples);
         self.inner.read_exact(bytes)?;
-
         Ok(Some(samples))
     }
 
