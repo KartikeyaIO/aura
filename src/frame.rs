@@ -55,6 +55,9 @@ impl YuvFrame {
             .map_err(|e| ReelError::Compression(e.to_string()))?;
         self.vdata = zstd::encode_all(self.vdata.as_slice(), level)
             .map_err(|e| ReelError::Compression(e.to_string()))?;
+        self.header.ylen = self.ydata.len() as u32;
+        self.header.ulen = self.udata.len() as u32;
+        self.header.vlen = self.vdata.len() as u32;
         Ok(())
     }
     pub fn decompress(&mut self) -> ReelResult<()> {

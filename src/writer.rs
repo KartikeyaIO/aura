@@ -63,15 +63,6 @@ impl ReelWriter {
         self.inner.write_all(frame.vdata())?;
         self.current_offset += frame_header.vlen as u64;
 
-        // pad to next 4KB boundary
-        let remainder = self.current_offset % 4096;
-        if remainder != 0 {
-            let padding = 4096 - remainder;
-            let zeros = vec![0u8; padding as usize];
-            self.inner.write_all(&zeros)?;
-            self.current_offset += padding;
-        }
-
         self.frame_count += 1;
         Ok(())
     }
