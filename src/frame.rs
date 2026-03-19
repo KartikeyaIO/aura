@@ -32,15 +32,28 @@ impl FrameHeader {
     }
 }
 
-pub struct YuvFrame {
+pub struct YuvFrame<'a> {
     header: FrameHeader,
-    ydata: Vec<u8>,
-    udata: Vec<u8>,
-    vdata: Vec<u8>,
+    ydata: &'a [u8],
+    udata: &'a [u8],
+    vdata: &'a [u8],
 }
 
-impl YuvFrame {
-    pub fn new(header: FrameHeader, ydata: Vec<u8>, udata: Vec<u8>, vdata: Vec<u8>) -> Self {
+pub struct CompressedFrame {
+    pub header: FrameHeader,
+    pub ydata: Vec<u8>,
+    pub udata: Vec<u8>,
+    pub vdata: Vec<u8>,
+}
+pub struct DecodedFrame {
+    pub header: FrameHeader,
+    pub ydata: Vec<u8>,
+    pub udata: Vec<u8>,
+    pub vdata: Vec<u8>,
+}
+
+impl<'a> YuvFrame<'a> {
+    pub fn new(header: FrameHeader, ydata: &'a [u8], udata: &'a [u8], vdata: &'a [u8]) -> Self {
         Self {
             header,
             ydata,
@@ -48,32 +61,59 @@ impl YuvFrame {
             vdata,
         }
     }
-    pub fn compress(&mut self, level: i32) -> ReelResult<()> {
-        self.ydata = zstd::encode_all(self.ydata.as_slice(), level)
+    pub fn compress(&self, level: i32) -> ReelResult<CompressedFrame> {
+        let y = zstd::encode_all(self.ydata, level)
             .map_err(|e| ReelError::Compression(e.to_string()))?;
-        self.udata = zstd::encode_all(self.udata.as_slice(), level)
+        let u = zstd::encode_all(self.udata, level)
             .map_err(|e| ReelError::Compression(e.to_string()))?;
-        self.vdata = zstd::encode_all(self.vdata.as_slice(), level)
+        let v = zstd::encode_all(self.vdata, level)
             .map_err(|e| ReelError::Compression(e.to_string()))?;
-        self.header.ylen = self.ydata.len() as u32;
-        self.header.ulen = self.udata.len() as u32;
-        self.header.vlen = self.vdata.len() as u32;
-        Ok(())
-    }
-    pub fn decompress(&mut self) -> ReelResult<()> {
-        self.ydata = zstd::decode_all(self.ydata.as_slice())
-            .map_err(|e| ReelError::Decompression(e.to_string()))?;
-        self.udata = zstd::decode_all(self.udata.as_slice())
-            .map_err(|e| ReelError::Decompression(e.to_string()))?;
-        self.vdata = zstd::decode_all(self.vdata.as_slice())
-            .map_err(|e| ReelError::Decompression(e.to_string()))?;
-        Ok(())
+
+        let mut header = self.header;
+        header.ylen = y.len() as u32;
+        header.ulen = u.len() as u32;
+        header.vlen = v.len() as u32;
+
+        Ok(CompressedFrame {
+            header,
+            ydata: y,
+            udata: u,
+            vdata: v,
+        })
     }
 }
-impl YuvFrame {
+impl<'a> YuvFrame<'a> {
     pub fn header(&self) -> FrameHeader {
         self.header
     }
+    pub fn ydata(&self) -> &[u8] {
+        self.ydata
+    }
+    pub fn udata(&self) -> &[u8] {
+        self.udata
+    }
+    pub fn vdata(&self) -> &[u8] {
+        self.vdata
+    }
+}
+impl CompressedFrame {
+    pub fn decompress(&self) -> ReelResult<DecodedFrame> {
+        let y = zstd::decode_all(&self.ydata[..])
+            .map_err(|e| ReelError::Decompression(e.to_string()))?;
+        let u = zstd::decode_all(&self.udata[..])
+            .map_err(|e| ReelError::Decompression(e.to_string()))?;
+        let v = zstd::decode_all(&self.vdata[..])
+            .map_err(|e| ReelError::Decompression(e.to_string()))?;
+
+        Ok(DecodedFrame {
+            header: self.header,
+            ydata: y,
+            udata: u,
+            vdata: v,
+        })
+    }
+}
+impl DecodedFrame {
     pub fn ydata(&self) -> &[u8] {
         &self.ydata
     }

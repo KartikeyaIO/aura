@@ -39,28 +39,24 @@ impl ReelWriter {
             audio_size: 0,
         })
     }
-    pub fn write_frame(&mut self, mut frame: YuvFrame, level: i32) -> ReelResult<()> {
-        // compress in place — ylen/ulen/vlen in FrameHeader get updated to compressed sizes
-        frame.compress(level)?;
+    pub fn write_frame(&mut self, frame: YuvFrame, level: i32) -> ReelResult<()> {
+        let compressed = frame.compress(level)?;
 
-        // record OIT entry before writing — current_offset is where this frame starts
         self.oit.push(OitEntry {
             byte_offset: self.current_offset,
         });
 
-        // write frame header
-        let frame_header = frame.header();
+        let frame_header = compressed.header;
         self.inner.write_all(bytes_of(&frame_header))?;
         self.current_offset += crate::frame::FRAME_HEADER_SIZE as u64;
 
-        // write compressed planes sequentially
-        self.inner.write_all(frame.ydata())?;
+        self.inner.write_all(&compressed.ydata)?;
         self.current_offset += frame_header.ylen as u64;
 
-        self.inner.write_all(frame.udata())?;
+        self.inner.write_all(&compressed.udata)?;
         self.current_offset += frame_header.ulen as u64;
 
-        self.inner.write_all(frame.vdata())?;
+        self.inner.write_all(&compressed.vdata)?;
         self.current_offset += frame_header.vlen as u64;
 
         self.frame_count += 1;

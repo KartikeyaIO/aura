@@ -1,6 +1,6 @@
 use crate::{
     error::{ReelError, ReelResult},
-    frame::{FRAME_HEADER_SIZE, FrameHeader, YuvFrame},
+    frame::{CompressedFrame, DecodedFrame, FRAME_HEADER_SIZE, FrameHeader},
     header::{FILEHEADERSIZE, FileHeader, MAGIC, VERSION},
     oit::{OIT_ENTRY_SIZE, OitEntry},
 };
@@ -49,8 +49,8 @@ impl ReelReader {
         Ok(Self { inner, header, oit })
     }
 
-    pub fn read_frame(&mut self, index: u64) -> ReelResult<YuvFrame> {
-        // copy offset out immediately so borrow on self.oit ends before self.inner is used
+    pub fn read_frame(&mut self, index: u64) -> ReelResult<DecodedFrame> {
+        // get byte offset from OIT
         let byte_offset = self
             .oit
             .get(index as usize)
@@ -69,7 +69,7 @@ impl ReelReader {
             return Err(ReelError::CorruptOit);
         }
 
-        // read compressed planes using sizes from frame header
+        // read compressed planes
         let mut ydata = vec![0u8; frame_header.ylen as usize];
         let mut udata = vec![0u8; frame_header.ulen as usize];
         let mut vdata = vec![0u8; frame_header.vlen as usize];
@@ -78,11 +78,17 @@ impl ReelReader {
         self.inner.read_exact(&mut udata)?;
         self.inner.read_exact(&mut vdata)?;
 
-        // decompress in place
-        let mut frame = YuvFrame::new(frame_header, ydata, udata, vdata);
-        frame.decompress()?;
+        let compressed = CompressedFrame {
+            header: frame_header,
+            ydata,
+            udata,
+            vdata,
+        };
 
-        Ok(frame)
+        // decompress using your function
+        let decoded = compressed.decompress()?;
+
+        Ok(decoded)
     }
 
     pub fn read_audio(&mut self) -> ReelResult<Option<Vec<f32>>> {
