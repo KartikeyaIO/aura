@@ -6,7 +6,6 @@
 - Audio is stored separately from the frames and as a single unit, so we can replace and process audio easily.
 
 ---
-
 # The Architecture
 
 ## File Header

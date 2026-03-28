@@ -1,14 +1,12 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::error::{ReelError, ReelResult};
-
-pub const FRAME_HEADER_SIZE: usize = 32;
+use lz4_flex::block::{compress_prepend_size, decompress_size_prepended};
+pub const FRAME_HEADER_SIZE: usize = 24;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct FrameHeader {
-    pub width: u32,
-    pub height: u32,
     pub ylen: u32, // compressed Y plane size in bytes
     pub ulen: u32, // compressed Cb plane size in bytes
     pub vlen: u32, // compressed Cr plane size in bytes
@@ -19,10 +17,8 @@ pub struct FrameHeader {
 const _: () = assert!(std::mem::size_of::<FrameHeader>() == FRAME_HEADER_SIZE);
 
 impl FrameHeader {
-    pub fn new(width: u32, height: u32, ylen: u32, ulen: u32, vlen: u32, index: u64) -> Self {
+    pub fn new(ylen: u32, ulen: u32, vlen: u32, index: u64) -> Self {
         Self {
-            width,
-            height,
             ylen,
             ulen,
             vlen,
@@ -52,6 +48,69 @@ pub struct DecodedFrame {
     pub vdata: Vec<u8>,
 }
 
+pub fn paeth_predictor(data: Vec<u8>, width: usize) -> ReelResult<Vec<u8>> {
+    let original = data.clone();
+    let mut out = data;
+
+    for y in 0..original.len() / width {
+        for x in 0..width {
+            let i = y * width + x;
+            let a = if x > 0 { original[i - 1] as i16 } else { 0 };
+            let b = if y > 0 { original[i - width] as i16 } else { 0 };
+            let c = if x > 0 && y > 0 {
+                original[i - width - 1] as i16
+            } else {
+                0
+            };
+
+            let p = a + b - c;
+            let pa = (p - a).abs();
+            let pb = (p - b).abs();
+            let pc = (p - c).abs();
+
+            let predictor = if pa <= pb && pa <= pc {
+                a
+            } else if pb <= pc {
+                b
+            } else {
+                c
+            };
+            out[i] = original[i].wrapping_sub(predictor as u8);
+        }
+    }
+    Ok(out)
+}
+pub fn paeth_rev(mut data: Vec<u8>, width: usize) -> Vec<u8> {
+    let height = data.len() / width;
+    for y in 0..height {
+        for x in 0..width {
+            let i = y * width + x;
+            let a = if x > 0 { data[i - 1] } else { 0 };
+            let b = if y > 0 { data[i - width] } else { 0 };
+            let c = if x > 0 && y > 0 {
+                data[i - width - 1]
+            } else {
+                0
+            };
+
+            let p = a as i16 + b as i16 - c as i16;
+            let pa = (p - a as i16).abs();
+            let pb = (p - b as i16).abs();
+            let pc = (p - c as i16).abs();
+
+            let pred = if pa <= pb && pa <= pc {
+                a
+            } else if pb <= pc {
+                b
+            } else {
+                c
+            };
+            data[i] = data[i].wrapping_add(pred);
+        }
+    }
+    data
+}
+
 impl<'a> YuvFrame<'a> {
     pub fn new(header: FrameHeader, ydata: &'a [u8], udata: &'a [u8], vdata: &'a [u8]) -> Self {
         Self {
@@ -61,14 +120,13 @@ impl<'a> YuvFrame<'a> {
             vdata,
         }
     }
-    pub fn compress(&self, level: i32) -> ReelResult<CompressedFrame> {
-        let y = zstd::encode_all(self.ydata, level)
-            .map_err(|e| ReelError::Compression(e.to_string()))?;
-        let u = zstd::encode_all(self.udata, level)
-            .map_err(|e| ReelError::Compression(e.to_string()))?;
-        let v = zstd::encode_all(self.vdata, level)
-            .map_err(|e| ReelError::Compression(e.to_string()))?;
-
+    pub fn compress(&self) -> ReelResult<CompressedFrame> {
+        let mut y = self.ydata.to_vec();
+        let mut u = self.udata.to_vec();
+        let mut v = self.vdata.to_vec();
+        y = zstd::encode_all(&y[..], 1)?;
+        u = zstd::encode_all(&u[..], 1)?;
+        v = zstd::encode_all(&v[..], 1)?;
         let mut header = self.header;
         header.ylen = y.len() as u32;
         header.ulen = u.len() as u32;
@@ -97,7 +155,7 @@ impl<'a> YuvFrame<'a> {
     }
 }
 impl CompressedFrame {
-    pub fn decompress(&self) -> ReelResult<DecodedFrame> {
+    pub fn decompress(&self, width: usize) -> ReelResult<DecodedFrame> {
         let y = zstd::decode_all(&self.ydata[..])
             .map_err(|e| ReelError::Decompression(e.to_string()))?;
         let u = zstd::decode_all(&self.udata[..])
@@ -105,8 +163,12 @@ impl CompressedFrame {
         let v = zstd::decode_all(&self.vdata[..])
             .map_err(|e| ReelError::Decompression(e.to_string()))?;
 
+        let mut header = self.header;
+        header.ylen = y.len() as u32;
+        header.ulen = u.len() as u32;
+        header.vlen = v.len() as u32;
         Ok(DecodedFrame {
-            header: self.header,
+            header: header,
             ydata: y,
             udata: u,
             vdata: v,

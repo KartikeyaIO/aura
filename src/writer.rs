@@ -1,6 +1,6 @@
 use crate::{
-    error::{ReelError, ReelResult},
-    frame::YuvFrame,
+    error::ReelResult,
+    frame::{CompressedFrame, YuvFrame},
     header::{FILEHEADERSIZE, FileHeader},
     oit::{OitEntry, write_oit},
 };
@@ -39,8 +39,8 @@ impl ReelWriter {
             audio_size: 0,
         })
     }
-    pub fn write_frame(&mut self, frame: YuvFrame, level: i32) -> ReelResult<()> {
-        let compressed = frame.compress(level)?;
+    pub fn write_frame(&mut self, frame: YuvFrame) -> ReelResult<()> {
+        let compressed = frame.compress()?;
 
         self.oit.push(OitEntry {
             byte_offset: self.current_offset,

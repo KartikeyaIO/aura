@@ -8,3 +8,6 @@ zstd = "0.13"
 crc32fast = "1.4"
 bytemuck = { version = "1.16", features = ["derive"] }
 thiserror = "2"
+lz4_flex = "0.13.0"
+bincode = "1.3"
+
