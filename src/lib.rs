@@ -5,7 +5,7 @@ pub mod oit;
 pub mod reader;
 pub mod writer;
 
-pub struct Reel {
-    reader: reader::ReelReader,
-    writer: writer::ReelWriter,
+pub enum Reel {
+    Reader(reader::ReelReader),
+    Writer(writer::ReelWriter),
 }

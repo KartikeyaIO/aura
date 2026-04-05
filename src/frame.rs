@@ -3,6 +3,7 @@ use bytemuck::{Pod, Zeroable};
 use crate::error::{ReelError, ReelResult};
 use lz4_flex::block::{compress_prepend_size, decompress_size_prepended};
 pub const FRAME_HEADER_SIZE: usize = 24;
+use rayon::join;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -120,13 +121,20 @@ impl<'a> YuvFrame<'a> {
             vdata,
         }
     }
+
     pub fn compress(&self) -> ReelResult<CompressedFrame> {
-        let mut y = self.ydata.to_vec();
-        let mut u = self.udata.to_vec();
-        let mut v = self.vdata.to_vec();
-        y = zstd::encode_all(&y[..], 1)?;
-        u = zstd::encode_all(&u[..], 1)?;
-        v = zstd::encode_all(&v[..], 1)?;
+        let (y, (u, v)) = rayon::join(
+            || zstd::encode_all(self.ydata, 1),
+            || {
+                rayon::join(
+                    || zstd::encode_all(self.udata, 1),
+                    || zstd::encode_all(self.vdata, 1),
+                )
+            },
+        );
+        let y = y?;
+        let u = u?;
+        let v = v?;
         let mut header = self.header;
         header.ylen = y.len() as u32;
         header.ulen = u.len() as u32;
@@ -155,7 +163,7 @@ impl<'a> YuvFrame<'a> {
     }
 }
 impl CompressedFrame {
-    pub fn decompress(&self, width: usize) -> ReelResult<DecodedFrame> {
+    pub fn decompress(&self) -> ReelResult<DecodedFrame> {
         let y = zstd::decode_all(&self.ydata[..])
             .map_err(|e| ReelError::Decompression(e.to_string()))?;
         let u = zstd::decode_all(&self.udata[..])

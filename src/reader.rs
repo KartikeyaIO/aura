@@ -86,7 +86,7 @@ impl ReelReader {
         };
 
         // decompress using your function
-        let decoded = compressed.decompress(self.header.width as usize)?;
+        let decoded = compressed.decompress()?;
 
         Ok(decoded)
     }
