@@ -1,9 +1,39 @@
-use bytemuck::{Pod, Zeroable};
-
 use crate::error::{ReelError, ReelResult};
-use lz4_flex::block::{compress_prepend_size, decompress_size_prepended};
-pub const FRAME_HEADER_SIZE: usize = 24;
-use rayon::join;
+use crate::header::AudioHeader;
+use bytemuck::{Pod, Zeroable};
+pub const FRAME_HEADER_SIZE: usize = 40;
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct TimeStamp {
+    pub pts: i64,
+    pub num: u32,
+    pub den: u32,
+}
+impl TimeStamp {
+    pub fn to_seconds(&self) -> f64 {
+        self.pts as f64 * (self.num as f64 / self.den as f64)
+    }
+    pub fn rescale(&self, new_num: u32, new_den: u32) -> Self {
+        let new_pts =
+            self.pts * new_den as i64 * self.num as i64 / (self.den as i64 * new_num as i64);
+
+        Self {
+            pts: new_pts,
+            num: new_num,
+            den: new_den,
+        }
+    }
+
+    pub fn add(&self, other: &TimeStamp) -> Self {
+        let other_rescaled = other.rescale(self.num, self.den);
+        Self {
+            pts: self.pts + other_rescaled.pts,
+            num: self.num,
+            den: self.den,
+        }
+    }
+}
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -12,17 +42,19 @@ pub struct FrameHeader {
     pub ulen: u32, // compressed Cb plane size in bytes
     pub vlen: u32, // compressed Cr plane size in bytes
     pub index: u64,
+    pub time: TimeStamp,
     pub _pad: u32,
 }
 
 const _: () = assert!(std::mem::size_of::<FrameHeader>() == FRAME_HEADER_SIZE);
 
 impl FrameHeader {
-    pub fn new(ylen: u32, ulen: u32, vlen: u32, index: u64) -> Self {
+    pub fn new(ylen: u32, ulen: u32, vlen: u32, index: u64, time: TimeStamp) -> Self {
         Self {
             ylen,
             ulen,
             vlen,
+            time,
             index,
             _pad: 0,
         }
@@ -34,6 +66,35 @@ pub struct YuvFrame<'a> {
     ydata: &'a [u8],
     udata: &'a [u8],
     vdata: &'a [u8],
+}
+pub struct AudioFrame {
+    pub header: AudioHeader,
+    pub samples: Vec<f32>,
+}
+impl AudioFrame {
+    pub fn split_audio(samples: Vec<f32>, sample_rate: u32) -> Vec<AudioFrame> {
+        let chunk_size = 1024;
+        let mut frames = Vec::new();
+
+        for (i, chunk) in samples.chunks(chunk_size).enumerate() {
+            let timestamp = TimeStamp {
+                pts: (i * chunk_size) as i64,
+                num: 1,
+                den: sample_rate,
+            };
+
+            frames.push(AudioFrame {
+                header: AudioHeader {
+                    timestamp,
+                    sample_rate,
+                    channels: 1, // adjust if needed
+                },
+                samples: chunk.to_vec(),
+            });
+        }
+
+        frames
+    }
 }
 
 pub struct CompressedFrame {

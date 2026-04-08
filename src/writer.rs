@@ -1,6 +1,6 @@
 use crate::{
     error::ReelResult,
-    frame::{CompressedFrame, YuvFrame},
+    frame::{AudioFrame, YuvFrame},
     header::{FILEHEADERSIZE, FileHeader},
     oit::{OitEntry, write_oit},
 };
@@ -62,13 +62,45 @@ impl ReelWriter {
         self.frame_count += 1;
         Ok(())
     }
+    fn write_audio_frame(&mut self, frame: &AudioFrame) -> ReelResult<()> {
+        // 1. Write header (timestamp + metadata)
 
-    pub fn write_audio(&mut self, samples: &[f32]) -> ReelResult<()> {
-        self.audio_offset = self.current_offset; // record where audio starts
-        let bytes = bytemuck::cast_slice::<f32, u8>(samples); // safe, no unsafe needed
+        self.inner
+            .write_all(&frame.header.timestamp.pts.to_le_bytes())?;
+        self.inner
+            .write_all(&frame.header.timestamp.num.to_le_bytes())?;
+        self.inner
+            .write_all(&frame.header.timestamp.den.to_le_bytes())?;
+
+        self.inner
+            .write_all(&frame.header.sample_rate.to_le_bytes())?;
+        self.inner.write_all(&frame.header.channels.to_le_bytes())?;
+
+        let sample_count = frame.samples.len() as u32;
+        self.inner.write_all(&sample_count.to_le_bytes())?;
+
+        // 2. Write samples
+        let bytes = bytemuck::cast_slice::<f32, u8>(&frame.samples);
         self.inner.write_all(bytes)?;
-        self.audio_size = bytes.len() as u64;
-        self.current_offset += self.audio_size;
+
+        // 3. Update offset
+        self.current_offset += (8 + 4 + 4) + // timestamp
+        4 + 2 +       // sample_rate + channels
+        4 +           // sample_count
+        bytes.len() as u64;
+
+        Ok(())
+    }
+    pub fn write_audio(&mut self, samples: &[f32], sample_rate: u32) -> ReelResult<()> {
+        self.audio_offset = self.current_offset;
+
+        let frames = AudioFrame::split_audio(samples.to_vec(), sample_rate);
+
+        for frame in frames {
+            self.write_audio_frame(&frame)?;
+        }
+
+        self.audio_size = self.current_offset - self.audio_offset;
         Ok(())
     }
 

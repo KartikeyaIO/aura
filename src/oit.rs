@@ -1,4 +1,4 @@
-use crate::error::{ReelError, ReelResult};
+use crate::error::ReelResult;
 use bytemuck::{Pod, Zeroable, bytes_of, from_bytes};
 use std::io::{Read, Write};
 

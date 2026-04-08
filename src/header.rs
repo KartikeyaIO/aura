@@ -1,5 +1,5 @@
+use crate::frame::TimeStamp;
 use bytemuck::{Pod, Zeroable};
-
 pub const MAGIC: &[u8; 4] = b"REEL";
 pub const VERSION: u16 = 1;
 pub const FILEHEADERSIZE: usize = 72;
@@ -44,4 +44,10 @@ impl FileHeader {
     pub fn validate(&self) -> bool {
         &self.magic == MAGIC && self.version == VERSION
     }
+}
+
+pub struct AudioHeader {
+    pub timestamp: TimeStamp,
+    pub sample_rate: u32,
+    pub channels: u16,
 }
