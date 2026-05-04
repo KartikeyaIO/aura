@@ -1,130 +1,242 @@
 # The Reel Format
 
-- It is an intermediate Format for [Editron](https://github.com/KartikeyaIO/Editron)
-- This format stores data in YUV420 pixel format and uses Zstandard Compression algorithm to compress the channels.
-- It has O(1) frame access.
-- Audio is stored separately from the frames and as a single unit, so we can replace and process audio easily.
+Reel is an intermediate video container format designed for **Editron**. It focuses on simplicity, fast random access, and predictable decoding rather than aggressive compression.
 
 ---
-# The Architecture
 
-## File Header
+# Core Features
 
-- The file header is of 72 bytes  
-- It contains:
-  - Magic bytes: `REEL` (used to validate file type)
-  - Version number (for forward compatibility)
-  - Total number of frames
-  - Frame width and height
-  - FPS represented as a rational number (`fps_num / fps_den`)
-  - Audio metadata:
-    - `audio_offset` (0 if no audio)
-    - `audio_size`
-  - `oit_offset` (offset to the Offset Index Table)
-- The header is written once at the beginning and patched during finalization.
+- YUV420 planar video storage
+- Independent per-frame compression using **Zstandard (zstd)**
+- **O(1) random frame access** via Offset Index Table (OIT)
+- Separate audio stream (non-interleaved)
+- Simple binary layout for fast parsing
+
+---
+
+# Architecture
+
+## File Header (72 bytes)
+
+Defined in `header.rs`
+
+The file begins with a fixed-size header:
+
+- Magic bytes: `REEL`
+- Version (`u16`)
+- Total number of frames (`u64`)
+- Resolution: `width`, `height`
+- FPS: `fps_num / fps_den`
+- Audio:
+  - `audio_offset`
+  - `audio_size`
+- OIT offset (`oit_offset`)
+
+### Notes
+
+- Header is written initially and **patched during finalization**
+- Validation checks:
+  - Magic must match
+  - Version must match
 
 ---
 
 ## Frame Layout
 
-Each frame is stored independently and consists of:
+Defined in `frame.rs`
 
-### 1. Frame Header (32 bytes)
+Each frame is stored independently.
 
-- Width and height
-- Compressed sizes of:
-  - Y plane (`ylen`)
-  - U plane (`ulen`)
-  - V plane (`vlen`)
-- Frame index (used for integrity validation)
+### Frame Header (40 bytes)
 
-### 2. Frame Data
+Contains:
 
-- Compressed Y plane  
-- Compressed U plane  
-- Compressed V plane  
+- `ylen`, `ulen`, `vlen` → compressed plane sizes
+- `index` → frame index (used for integrity validation)
+- `timestamp` → presentation timestamp (`TimeStamp`)
+- padding
 
-All planes are stored in **YUV420 format**:
+
+---
+
+### Frame Data
+
+Immediately follows the header:
+
+- Y plane (compressed)
+- U plane (compressed)
+- V plane (compressed)
+
+### Format
+
 - Y: full resolution (`width × height`)
 - U: quarter resolution (`width/2 × height/2`)
 - V: quarter resolution (`width/2 × height/2`)
 
-Each plane is compressed independently using **Zstandard (zstd)**.
+---
+
+## Compression Pipeline
+
+Implemented in `frame.rs`
+
+- Each plane is compressed independently using **zstd**
+- Compression is parallelized using `rayon`
+
+### Optional Preprocessing
+
+- Includes **Paeth predictor** (lossless transform)
+- Functions:
+  - `paeth_predictor`
+  - `paeth_rev`
+
+Currently not automatically applied in pipeline.
 
 ---
 
 ## Offset Index Table (OIT)
 
-- The OIT enables **O(1) random frame access**
-- It is stored near the end of the file
-- Each entry contains:
-  - Byte offset of a frame
+Defined in `oit.rs`
+
+- Located near end of file
+- Enables direct frame access
 
 ### Structure
 
-- `total_frames` entries
-- Each entry is 8 bytes (`u64` offset)
+- Array of `u64` offsets
+- Size = `total_frames × 8 bytes`
 
-### Access
+### Access Flow
 
-To access frame `i`:
-1. Read `OIT[i]`
-2. Seek directly to that byte offset
-3. Decode the frame
+1. Read OIT offset from file footer
+2. Load OIT into memory
+3. Seek directly to frame using offset
 
 ---
 
 ## Footer
 
-- The last 8 bytes of the file store the `oit_offset`
-- This allows the reader to locate the OIT quickly without scanning the file
+- The last 8 bytes store `oit_offset`
+- Used to locate OIT without scanning the file
 
 ---
 
-## Audio Storage
+## Audio Format
 
-- Audio is stored as a **single contiguous block**
-- Format:
-  - 32-bit floating point samples (`f32`)
-- Located at:
-  - `audio_offset` in the file header
-- Size:
-  - `audio_size`
+Defined across `frame.rs` and `reader.rs`
 
-### Design Choice
+Audio is stored separately as a contiguous block.
 
-- Audio is separated from video frames to:
-  - simplify editing
-  - allow independent replacement
-  - avoid interleaving complexity
+### Structure per Audio Frame
+
+Each chunk contains:
+
+- Timestamp:
+  - `pts` (`i64`)
+  - `num`, `den`
+- Metadata:
+  - `sample_rate`
+  - `channels`
+  - `sample_count`
+- Samples:
+  - `f32` PCM data
+
+### Chunking
+
+- Audio is split into chunks of **1024 samples**
+- Converted into multiple `AudioFrame`s
 
 ---
 
-## Compression
+## Reader
 
-- Each frame’s Y, U, and V planes are compressed independently using **Zstandard**
-- Compression level is configurable during encoding
+Implemented in `reader.rs`
 
-### Important
+### Responsibilities
 
-- Frame header stores **compressed sizes**, not raw sizes
-- This ensures correct decoding and prevents buffer mismatches
+- Validate file header
+- Load OIT into memory
+
+### Methods
+
+#### `read_frame(index)`
+
+- Uses OIT for direct seek
+- Reads compressed data
+- Decompresses into `DecodedFrame`
+
+#### `read_audio()`
+
+- Reads entire audio block
+- Returns `Vec<AudioFrame>`
+
+---
+
+## Writer
+
+Implemented in `writer.rs`
+
+### Workflow
+
+1. Write placeholder header
+2. Write frames sequentially
+3. Track offsets for OIT
+4. Optionally write audio
+5. Write OIT
+6. Write footer (`oit_offset`)
+7. Patch header with final metadata
+
+---
+
+## Error Handling
+
+Defined in `error.rs`
+
+Custom error type includes:
+
+- IO errors
+- Compression / decompression failures
+- Invalid magic / version
+- Corrupt OIT
+- Frame out-of-bounds
+- Invalid frame header
 
 ---
 
 ## Design Goals
 
-- Fast random access (O(1) frame seeking)
-- Simple decoding pipeline
-- Efficient compression with minimal complexity
-- Suitable as an **intermediate format for editing workflows**
-- Easy integration with tools like FFmpeg
+- Deterministic decoding
+- Fast random access (O(1))
+- Minimal container complexity
+- Easy debugging and tooling
+- Suitable for intermediate processing (not final delivery)
 
 ---
 
 ## Limitations
 
-- No inter-frame compression (larger file sizes compared to codecs like H.264)
-- No built-in color space metadata (assumes YUV420)
-- No streaming support (requires full file access)
-- Minimal error resilience
+- No inter-frame compression (larger file sizes)
+- No color metadata (assumes YUV420)
+- No streaming support
+- No advanced indexing beyond OIT
+- Audio is not compressed
+
+---
+
+## Summary
+
+Reel trades compression efficiency for:
+
+- speed
+- simplicity
+- controllability
+
+### Best suited for:
+
+- editing pipelines
+- intermediate storage
+- deterministic processing systems
+
+### Not suited for:
+
+- distribution
+- bandwidth-constrained environments
