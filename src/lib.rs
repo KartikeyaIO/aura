@@ -5,7 +5,7 @@ pub mod oit;
 pub mod reader;
 pub mod writer;
 
-pub enum Reel {
-    Reader(reader::ReelReader),
-    Writer(writer::ReelWriter),
+pub enum Aura {
+    Reader(reader::AuraReader),
+    Writer(writer::AuraWriter),
 }

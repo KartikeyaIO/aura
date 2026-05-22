@@ -1,4 +1,4 @@
-use crate::error::ReelResult;
+use crate::error::AuraResult;
 use bytemuck::{Pod, Zeroable, bytes_of, from_bytes};
 use std::io::{Read, Write};
 
@@ -12,14 +12,14 @@ pub struct OitEntry {
 
 const _: () = assert!(std::mem::size_of::<OitEntry>() == OIT_ENTRY_SIZE);
 
-pub fn write_oit<W: Write>(writer: &mut W, entries: &[OitEntry]) -> ReelResult<()> {
+pub fn write_oit<W: Write>(writer: &mut W, entries: &[OitEntry]) -> AuraResult<()> {
     for entry in entries {
         writer.write_all(bytes_of(entry))?;
     }
     Ok(())
 }
 
-pub fn read_oit<R: Read>(reader: &mut R, frame_count: u64) -> ReelResult<Vec<OitEntry>> {
+pub fn read_oit<R: Read>(reader: &mut R, frame_count: u64) -> AuraResult<Vec<OitEntry>> {
     let mut oit = Vec::with_capacity(frame_count as usize);
     for _ in 0..frame_count {
         let mut buf = [0u8; OIT_ENTRY_SIZE];

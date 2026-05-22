@@ -1,6 +1,6 @@
-# The Reel Format
+# The Aura File Format
 
-Reel is an intermediate video container format designed for **Editron**. It focuses on simplicity, fast random access, and predictable decoding rather than aggressive compression.
+Aura is an intermediate video container format designed for **Editron**. It focuses on simplicity, fast random access, and predictable decoding rather than aggressive compression.
 
 ---
 
@@ -22,7 +22,7 @@ Defined in `header.rs`
 
 The file begins with a fixed-size header:
 
-- Magic bytes: `REEL`
+- Magic bytes: `Aura`
 - Version (`u16`)
 - Total number of frames (`u64`)
 - Resolution: `width`, `height`
@@ -224,7 +224,7 @@ Custom error type includes:
 
 ## Summary
 
-Reel trades compression efficiency for:
+Aura trades compression efficiency for:
 
 - speed
 - simplicity

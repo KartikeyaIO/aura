@@ -1,5 +1,5 @@
 use crate::{
-    error::{ReelError, ReelResult},
+    error::{AuraError, AuraResult},
     frame::{AudioFrame, CompressedFrame, DecodedFrame, FRAME_HEADER_SIZE, FrameHeader, TimeStamp},
     header::{AudioHeader, FILEHEADERSIZE, FileHeader, MAGIC, VERSION},
     oit::{OIT_ENTRY_SIZE, OitEntry},
@@ -8,14 +8,14 @@ use bytemuck::from_bytes;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Read, Seek, SeekFrom};
 
-pub struct ReelReader {
+pub struct AuraReader {
     inner: BufReader<File>,
     pub header: FileHeader,
     oit: Vec<OitEntry>,
 }
 
-impl ReelReader {
-    pub fn open(path: &str) -> ReelResult<Self> {
+impl AuraReader {
+    pub fn open(path: &str) -> AuraResult<Self> {
         let file = OpenOptions::new().read(true).open(path)?;
         let mut inner = BufReader::with_capacity(64 * 1024 * 1024, file);
 
@@ -25,10 +25,10 @@ impl ReelReader {
         let header = *from_bytes::<FileHeader>(&hdr_buf);
 
         if &header.magic != MAGIC {
-            return Err(ReelError::InvalidMagic);
+            return Err(AuraError::InvalidMagic);
         }
         if header.version != VERSION {
-            return Err(ReelError::UnsupportedVersion(header.version));
+            return Err(AuraError::UnsupportedVersion(header.version));
         }
 
         // read footer — last 8 bytes are oit_offset
@@ -49,12 +49,12 @@ impl ReelReader {
         Ok(Self { inner, header, oit })
     }
 
-    pub fn read_frame(&mut self, index: u64) -> ReelResult<DecodedFrame> {
+    pub fn read_frame(&mut self, index: u64) -> AuraResult<DecodedFrame> {
         // get byte offset from OIT
         let byte_offset = self
             .oit
             .get(index as usize)
-            .ok_or(ReelError::FrameOutOfBounds(index, self.header.total_frames))?
+            .ok_or(AuraError::FrameOutOfBounds(index, self.header.total_frames))?
             .byte_offset;
 
         self.inner.seek(SeekFrom::Start(byte_offset))?;
@@ -66,7 +66,7 @@ impl ReelReader {
 
         // corruption check
         if frame_header.index != index {
-            return Err(ReelError::CorruptOit);
+            return Err(AuraError::CorruptOit);
         }
 
         // read compressed planes
@@ -91,7 +91,7 @@ impl ReelReader {
         Ok(decoded)
     }
 
-    pub fn read_audio(&mut self) -> ReelResult<Option<Vec<AudioFrame>>> {
+    pub fn read_audio(&mut self) -> AuraResult<Option<Vec<AudioFrame>>> {
         if self.header.audio_offset == 0 {
             return Ok(None);
         }

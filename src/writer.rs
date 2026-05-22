@@ -1,5 +1,5 @@
 use crate::{
-    error::ReelResult,
+    error::AuraResult,
     frame::{AudioFrame, YuvFrame},
     header::{FILEHEADERSIZE, FileHeader},
     oit::{OitEntry, write_oit},
@@ -8,7 +8,7 @@ use bytemuck::bytes_of;
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 
-pub struct ReelWriter {
+pub struct AuraWriter {
     inner: BufWriter<File>,
     oit: Vec<OitEntry>,
     current_offset: u64,
@@ -19,8 +19,8 @@ pub struct ReelWriter {
     audio_size: u64,
 }
 
-impl ReelWriter {
-    pub fn new(path: &str, header: FileHeader) -> ReelResult<Self> {
+impl AuraWriter {
+    pub fn new(path: &str, header: FileHeader) -> AuraResult<Self> {
         let file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -39,7 +39,7 @@ impl ReelWriter {
             audio_size: 0,
         })
     }
-    pub fn write_frame(&mut self, frame: YuvFrame) -> ReelResult<()> {
+    pub fn write_frame(&mut self, frame: YuvFrame) -> AuraResult<()> {
         let compressed = frame.compress()?;
 
         self.oit.push(OitEntry {
@@ -62,7 +62,7 @@ impl ReelWriter {
         self.frame_count += 1;
         Ok(())
     }
-    fn write_audio_frame(&mut self, frame: &AudioFrame) -> ReelResult<()> {
+    fn write_audio_frame(&mut self, frame: &AudioFrame) -> AuraResult<()> {
         // 1. Write header (timestamp + metadata)
 
         self.inner
@@ -91,7 +91,7 @@ impl ReelWriter {
 
         Ok(())
     }
-    pub fn write_audio(&mut self, samples: &[f32], sample_rate: u32) -> ReelResult<()> {
+    pub fn write_audio(&mut self, samples: &[f32], sample_rate: u32) -> AuraResult<()> {
         self.audio_offset = self.current_offset;
 
         let frames = AudioFrame::split_audio(samples.to_vec(), sample_rate);
@@ -104,7 +104,7 @@ impl ReelWriter {
         Ok(())
     }
 
-    pub fn finalize(mut self, fps_num: u32, fps_den: u32) -> ReelResult<()> {
+    pub fn finalize(mut self, fps_num: u32, fps_den: u32) -> AuraResult<()> {
         let oit_offset = self.current_offset;
         write_oit(&mut self.inner, &self.oit)?;
         self.inner.write_all(&oit_offset.to_le_bytes())?;

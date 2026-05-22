@@ -1,4 +1,4 @@
-use crate::error::{ReelError, ReelResult};
+use crate::error::{AuraError, AuraResult};
 use crate::header::AudioHeader;
 use bytemuck::{Pod, Zeroable};
 pub const FRAME_HEADER_SIZE: usize = 40;
@@ -110,7 +110,7 @@ pub struct DecodedFrame {
     pub vdata: Vec<u8>,
 }
 
-pub fn paeth_predictor(data: Vec<u8>, width: usize) -> ReelResult<Vec<u8>> {
+pub fn paeth_predictor(data: Vec<u8>, width: usize) -> AuraResult<Vec<u8>> {
     let original = data.clone();
     let mut out = data;
 
@@ -183,7 +183,7 @@ impl<'a> YuvFrame<'a> {
         }
     }
 
-    pub fn compress(&self) -> ReelResult<CompressedFrame> {
+    pub fn compress(&self) -> AuraResult<CompressedFrame> {
         let (y, (u, v)) = rayon::join(
             || zstd::encode_all(self.ydata, 1),
             || {
@@ -224,13 +224,13 @@ impl<'a> YuvFrame<'a> {
     }
 }
 impl CompressedFrame {
-    pub fn decompress(&self) -> ReelResult<DecodedFrame> {
+    pub fn decompress(&self) -> AuraResult<DecodedFrame> {
         let y = zstd::decode_all(&self.ydata[..])
-            .map_err(|e| ReelError::Decompression(e.to_string()))?;
+            .map_err(|e| AuraError::Decompression(e.to_string()))?;
         let u = zstd::decode_all(&self.udata[..])
-            .map_err(|e| ReelError::Decompression(e.to_string()))?;
+            .map_err(|e| AuraError::Decompression(e.to_string()))?;
         let v = zstd::decode_all(&self.vdata[..])
-            .map_err(|e| ReelError::Decompression(e.to_string()))?;
+            .map_err(|e| AuraError::Decompression(e.to_string()))?;
 
         let mut header = self.header;
         header.ylen = y.len() as u32;

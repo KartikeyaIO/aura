@@ -1,6 +1,6 @@
 use crate::frame::TimeStamp;
 use bytemuck::{Pod, Zeroable};
-pub const MAGIC: &[u8; 4] = b"REEL";
+pub const MAGIC: &[u8; 4] = b"AURA";
 pub const VERSION: u16 = 1;
 pub const FILEHEADERSIZE: usize = 72;
 #[repr(C, packed)]

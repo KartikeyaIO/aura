@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum ReelError {
+pub enum AuraError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -27,4 +27,4 @@ pub enum ReelError {
     InvalidFrameHeader(u64),
 }
 
-pub type ReelResult<T> = Result<T, ReelError>;
+pub type AuraResult<T> = Result<T, AuraError>;
