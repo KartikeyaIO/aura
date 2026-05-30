@@ -80,6 +80,18 @@ CODECS = {
         "ext": ".reel",
         "encode_pix_fmt": "yuv420p",
     },
+    "HuffYUV": {
+        "ext": ".avi",
+        "encode_pix_fmt": "yuv422p",
+    },
+    "Ut_Video": {
+        "ext": ".avi",
+        "encode_pix_fmt": "yuv420p",
+    },
+    "Lagarith": {
+        "ext": ".avi",
+        "encode_pix_fmt": "yuv420p",
+    },
 }
 
 # ─── CSV Column Schema ─────────────────────────────────────────────

@@ -6,7 +6,7 @@ This document provides a comprehensive overview of the newly introduced **REEL (
 
 ## 1. System Architecture Overview
 
-The benchmarking suite is structured to facilitate a fully automated, reproducible, and crash-resilient pipeline that tests the REEL codec against industry-standard formats (FFV1 and Apple ProRes) across a diverse test matrix of 150 videos.
+The benchmarking suite is structured to facilitate a fully automated, reproducible, and crash-resilient pipeline that tests the REEL codec against industry-standard formats (FFV1, HuffYUV, Ut Video, Lagarith, and Apple ProRes) across a diverse test matrix of 150 videos.
 
 ```mermaid
 flowchart TD
@@ -51,7 +51,7 @@ We developed a complete benchmarking suite from scratch using Python, leveraging
 1.  **[config.py](file:///c:/aura/benchmark/config.py)**: Centralizes configuration constants.
     *   Defines **8 resolutions** (144p to 4K), **3 motion profiles** (low, medium, high), and **6 color/contrast schemes** (low contrast, high contrast, vivid, monochrome, gradient, mixed).
     *   Constructs a **fully reproducible, seed-based (Seed 42) test matrix of 150 videos** randomly balancing these attributes.
-    *   Defines configurations for 5 target codecs/profiles: **REEL, FFV1, ProRes HQ, ProRes HD, and ProRes Standard**.
+    *   Defines configurations for 8 target codecs/profiles: **REEL, FFV1, HuffYUV, Ut Video, Lagarith, ProRes HQ, ProRes HD, and ProRes Standard**.
     *   Declares a rigid 37-column CSV schema capturing everything from wall/CPU times, peak memory RSS, bitrates, quality metrics, to random frame seek statistics.
 2.  **[utils.py](file:///c:/aura/benchmark/utils.py)**: Implements underlying helper routines.
     *   `timed_run`/`timed_run_fast`: Invokes subprocesses while polling peak resident set memory (RSS) using `psutil` at 10ms intervals.
@@ -84,7 +84,7 @@ The primary benchmark output is `results/benchmark_results.csv`, which captures 
 | :--- | :--- | :--- |
 | **Identifiers** | `video_id`, `video_file`, `timestamp` | Unique identifiers and date-time of test run. |
 | **Properties** | `resolution`, `width`, `height`, `motion_type`, `color_type` | Visual characteristics and dimension metrics. |
-| **Configuration** | `codec` | REEL, FFV1, ProRes_HQ, ProRes_HD, or ProRes_Std. |
+| **Configuration** | `codec` | REEL, FFV1, HuffYUV, Ut_Video, Lagarith, ProRes_HQ, ProRes_HD, or ProRes_Std. |
 | **Sizes & Ratios**| `raw_yuv_size_bytes`, `encoded_size_bytes`, `compression_ratio`, `space_savings_pct` | Compression efficiency metrics. |
 | **Throughput** | `encode_fps`, `decode_fps`, `encode_realtime_ratio`, `decode_realtime_ratio`, `encode_throughput_mbps`, `decode_throughput_mbps` | Performance and real-time processing capability. |
 | **Timings** | `encode_wall_time_s`, `encode_cpu_time_s`, `decode_wall_time_s`, `decode_cpu_time_s` | Precise execution durations. |
@@ -148,4 +148,4 @@ This automatically populates the `results/charts/` and `results/tables/` folders
 > **ProRes Color Space Conversion**: ProRes profiles require a minimum of `YUV422` pixel formatting. Because the raw sources are native `YUV420p`, FFmpeg automatically transcodes them to `YUV422p10le` on encode, and back to `YUV420p` on decode. This chroma resampling process is **non-bit-exact** (lossy). As a result, ProRes will not report as `is_lossless = True` in the CSV, and will display a PSNR of ~45-60dB instead of `inf`. This is a physical constraint of the ProRes codec and is fully accounted for in the auto-generated methodology draft.
 
 > [!TIP]
-> **O(1) Random Frame Decoding**: Because REEL writes an Offset Index Table (OIT) to the end of the `.reel` file, random frame seeking commands (`reel decode <input> <output> --frame <index>`) run in true **$O(1)$** complexity. Competing codecs (FFV1/ProRes) wrapped in standard containers must parse and reconstruct preceding keyframes or stream frames to seek, resulting in latency that scales with frame index. The benchmark captures this delta explicitly in the `rand_frame_decode_*` metrics, demonstrating the structural superiority of REEL for random-access workflows.
+> **O(1) Random Frame Decoding**: Because REEL writes an Offset Index Table (OIT) to the end of the `.reel` file, random frame seeking commands (`reel decode <input> <output> --frame <index>`) run in true **$O(1)$** complexity. Competing codecs (FFV1/ProRes/HuffYUV/Ut Video) wrapped in standard containers must parse and reconstruct preceding keyframes or stream frames to seek, resulting in latency that scales with frame index. The benchmark captures this delta explicitly in the `rand_frame_decode_*` metrics, demonstrating the structural superiority of REEL for random-access workflows.

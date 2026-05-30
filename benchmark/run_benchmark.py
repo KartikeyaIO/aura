@@ -89,6 +89,42 @@ def encode_reel(yuv_path, output_path, width, height, reel_exe):
     ], label="Encode REEL")
 
 
+def encode_huffyuv(yuv_path, output_path, width, height):
+    """YUV420p -> HuffYUV (requires yuv422p or rgb24)."""
+    return timed_run([
+        "ffmpeg", "-y",
+        "-f", "rawvideo", "-pix_fmt", "yuv420p",
+        "-s", f"{width}x{height}", "-r", str(VIDEO_FPS),
+        "-i", str(yuv_path),
+        "-c:v", "huffyuv", "-pix_fmt", "yuv422p",
+        str(output_path),
+    ], label="Encode HuffYUV")
+
+
+def encode_utvideo(yuv_path, output_path, width, height):
+    """YUV420p -> Ut Video."""
+    return timed_run([
+        "ffmpeg", "-y",
+        "-f", "rawvideo", "-pix_fmt", "yuv420p",
+        "-s", f"{width}x{height}", "-r", str(VIDEO_FPS),
+        "-i", str(yuv_path),
+        "-c:v", "utvideo",
+        str(output_path),
+    ], label="Encode Ut Video")
+
+
+def encode_lagarith(yuv_path, output_path, width, height):
+    """YUV420p -> Lagarith."""
+    return timed_run([
+        "ffmpeg", "-y",
+        "-f", "rawvideo", "-pix_fmt", "yuv420p",
+        "-s", f"{width}x{height}", "-r", str(VIDEO_FPS),
+        "-i", str(yuv_path),
+        "-c:v", "lagarith",
+        str(output_path),
+    ], label="Encode Lagarith")
+
+
 def decode_ffmpeg(input_path, output_path):
     """Decode FFV1/ProRes -> raw YUV420p."""
     return timed_run([
@@ -118,6 +154,12 @@ def encode_with_codec(codec_name, yuv_path, output_path, width, height, reel_exe
         return encode_prores(yuv_path, output_path, width, height, cfg["profile"])
     elif codec_name == "REEL":
         return encode_reel(yuv_path, output_path, width, height, reel_exe)
+    elif codec_name == "HuffYUV":
+        return encode_huffyuv(yuv_path, output_path, width, height)
+    elif codec_name == "Ut_Video":
+        return encode_utvideo(yuv_path, output_path, width, height)
+    elif codec_name == "Lagarith":
+        return encode_lagarith(yuv_path, output_path, width, height)
     else:
         raise ValueError(f"Unknown codec: {codec_name}")
 

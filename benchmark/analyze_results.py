@@ -37,11 +37,14 @@ from config import RESULTS_DIR, CHARTS_DIR, TABLES_DIR, CSV_PATH, SYSTEM_INFO_PA
 CODEC_COLORS = {
     "REEL":       "#FF6B35",
     "FFV1":       "#4ECDC4",
+    "HuffYUV":    "#F1C40F",
+    "Ut_Video":   "#E67E22",
+    "Lagarith":   "#2ECC71",
     "ProRes_HQ":  "#2C3E50",
     "ProRes_HD":  "#3498DB",
     "ProRes_Std": "#9B59B6",
 }
-CODEC_ORDER = ["REEL", "FFV1", "ProRes_HQ", "ProRes_HD", "ProRes_Std"]
+CODEC_ORDER = ["REEL", "FFV1", "HuffYUV", "Ut_Video", "Lagarith", "ProRes_HQ", "ProRes_HD", "ProRes_Std"]
 RES_ORDER = ["144p", "240p", "360p", "480p", "720p", "1080p", "1440p", "4k"]
 
 
@@ -514,11 +517,14 @@ Random seed: 42 (reproducible).
 
 1. **REEL (Aura)** — custom intermediate format, per-frame zstd, O(1) random access via OIT. YUV420p native.
 2. **FFV1** — lossless intra-frame (level 3, GOP=1). YUV420p native.
-3. **ProRes HQ** (profile 3) — requires YUV422p10le minimum.
-4. **ProRes HD** (profile 2) — requires YUV422p10le minimum.
-5. **ProRes Standard** (profile 1) — requires YUV422p10le minimum.
+3. **HuffYUV** — similar philosophy intermediate codec. Requires YUV422p.
+4. **Ut Video** — editing-oriented lossless. YUV420p native.
+5. **Lagarith** — classic lossless intermediate. YUV420p native.
+6. **ProRes HQ** (profile 3) — requires YUV422p10le minimum.
+7. **ProRes HD** (profile 2) — requires YUV422p10le minimum.
+8. **ProRes Standard** (profile 1) — requires YUV422p10le minimum.
 
-ProRes profiles require 420p->422p conversion during encode and back during decode,
+ProRes and HuffYUV profiles require 420p->422p conversion during encode and back during decode,
 introducing chroma resampling differences.
 
 ## Measurement Pipeline
