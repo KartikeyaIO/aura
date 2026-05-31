@@ -132,6 +132,7 @@ python benchmark/run_benchmark.py
     *   `--smoke-test`: Runs a rapid 3-video validation using 144p resolutions to verify the pipeline.
     *   `--resume`: Resumes processing from the last successfully written video in the CSV if the pipeline was interrupted.
     *   `--reel-path <path>`: Specifies the REEL binary path explicitly via command line, bypassing the interactive prompt.
+    *   `--input-dir <path>`: Bypasses synthetic generation and benchmarks your own directory of custom videos (.mp4, .mkv, .avi, etc.), dynamically probing their resolution and framerate via ffprobe.
 
 #### Step 4: Analyze Results & Generate LaTeX/Figures
 After the CSV results file is written under `results/benchmark_results.csv`, run the analysis engine:

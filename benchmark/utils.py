@@ -140,6 +140,31 @@ def yuv_frame_size(width, height):
     return width * height * 3 // 2
 
 
+def get_video_info(path):
+    """Get width, height, and fps using ffprobe."""
+    try:
+        cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,r_frame_rate",
+            "-of", "csv=s=x:p=0", str(path)
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            parts = r.stdout.strip().split("x")
+            w = int(parts[0])
+            h = int(parts[1])
+            fps_str = parts[2]
+            if "/" in fps_str:
+                num, den = fps_str.split("/")
+                fps = float(num) / float(den) if den != "0" else 30.0
+            else:
+                fps = float(fps_str)
+            return w, h, fps
+    except Exception as e:
+        print(f"Warning: Failed to probe {path}: {e}")
+    return 1920, 1080, 30.0  # fallback defaults
+
+
 def files_identical(path_a, path_b, chunk_size=1024 * 1024):
     """Streaming byte-for-byte comparison of two files."""
     try:

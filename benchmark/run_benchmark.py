@@ -54,24 +54,24 @@ def mp4_to_yuv(mp4_path, yuv_path):
     ], label="MP4->YUV")
 
 
-def encode_ffv1(yuv_path, output_path, width, height):
+def encode_ffv1(yuv_path, output_path, width, height, fps):
     """YUV420p -> FFV1 (lossless, intra-only, GOP=1)."""
     return timed_run([
         "ffmpeg", "-y",
         "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        "-s", f"{width}x{height}", "-r", str(VIDEO_FPS),
+        "-s", f"{width}x{height}", "-r", str(fps),
         "-i", str(yuv_path),
         "-c:v", "ffv1", "-level", "3", "-g", "1",
         str(output_path),
     ], label="Encode FFV1")
 
 
-def encode_prores(yuv_path, output_path, width, height, profile):
+def encode_prores(yuv_path, output_path, width, height, profile, fps):
     """YUV420p -> ProRes (converts to yuv422p10le internally)."""
     return timed_run([
         "ffmpeg", "-y",
         "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        "-s", f"{width}x{height}", "-r", str(VIDEO_FPS),
+        "-s", f"{width}x{height}", "-r", str(fps),
         "-i", str(yuv_path),
         "-c:v", "prores_ks", "-profile:v", profile,
         "-pix_fmt", "yuv422p10le",
@@ -79,46 +79,48 @@ def encode_prores(yuv_path, output_path, width, height, profile):
     ], label=f"Encode ProRes (profile {profile})")
 
 
-def encode_reel(yuv_path, output_path, width, height, reel_exe):
+def encode_reel(yuv_path, output_path, width, height, reel_exe, fps):
     """YUV420p -> REEL (.reel) format."""
+    # REEL CLI expects fps as num/den; assume integer for now
+    fps_int = int(round(fps))
     return timed_run([
         reel_exe, "encode",
         str(yuv_path), str(output_path),
         "--width", str(width), "--height", str(height),
-        "--fps-num", str(VIDEO_FPS), "--fps-den", "1",
+        "--fps-num", str(fps_int), "--fps-den", "1",
     ], label="Encode REEL")
 
 
-def encode_huffyuv(yuv_path, output_path, width, height):
+def encode_huffyuv(yuv_path, output_path, width, height, fps):
     """YUV420p -> HuffYUV (requires yuv422p or rgb24)."""
     return timed_run([
         "ffmpeg", "-y",
         "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        "-s", f"{width}x{height}", "-r", str(VIDEO_FPS),
+        "-s", f"{width}x{height}", "-r", str(fps),
         "-i", str(yuv_path),
         "-c:v", "huffyuv", "-pix_fmt", "yuv422p",
         str(output_path),
     ], label="Encode HuffYUV")
 
 
-def encode_utvideo(yuv_path, output_path, width, height):
+def encode_utvideo(yuv_path, output_path, width, height, fps):
     """YUV420p -> Ut Video."""
     return timed_run([
         "ffmpeg", "-y",
         "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        "-s", f"{width}x{height}", "-r", str(VIDEO_FPS),
+        "-s", f"{width}x{height}", "-r", str(fps),
         "-i", str(yuv_path),
         "-c:v", "utvideo",
         str(output_path),
     ], label="Encode Ut Video")
 
 
-def encode_lagarith(yuv_path, output_path, width, height):
+def encode_lagarith(yuv_path, output_path, width, height, fps):
     """YUV420p -> Lagarith."""
     return timed_run([
         "ffmpeg", "-y",
         "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        "-s", f"{width}x{height}", "-r", str(VIDEO_FPS),
+        "-s", f"{width}x{height}", "-r", str(fps),
         "-i", str(yuv_path),
         "-c:v", "lagarith",
         str(output_path),
@@ -145,21 +147,21 @@ def decode_reel_full(input_path, output_path, reel_exe):
 #  Codec dispatch
 # ────────────────────────────────────────────────────────────────────
 
-def encode_with_codec(codec_name, yuv_path, output_path, width, height, reel_exe):
+def encode_with_codec(codec_name, yuv_path, output_path, width, height, reel_exe, fps):
     """Dispatch encoding to the appropriate codec handler."""
     cfg = CODECS[codec_name]
     if codec_name == "FFV1":
-        return encode_ffv1(yuv_path, output_path, width, height)
+        return encode_ffv1(yuv_path, output_path, width, height, fps)
     elif codec_name.startswith("ProRes"):
-        return encode_prores(yuv_path, output_path, width, height, cfg["profile"])
+        return encode_prores(yuv_path, output_path, width, height, cfg["profile"], fps)
     elif codec_name == "REEL":
-        return encode_reel(yuv_path, output_path, width, height, reel_exe)
+        return encode_reel(yuv_path, output_path, width, height, reel_exe, fps)
     elif codec_name == "HuffYUV":
-        return encode_huffyuv(yuv_path, output_path, width, height)
+        return encode_huffyuv(yuv_path, output_path, width, height, fps)
     elif codec_name == "Ut_Video":
-        return encode_utvideo(yuv_path, output_path, width, height)
+        return encode_utvideo(yuv_path, output_path, width, height, fps)
     elif codec_name == "Lagarith":
-        return encode_lagarith(yuv_path, output_path, width, height)
+        return encode_lagarith(yuv_path, output_path, width, height, fps)
     else:
         raise ValueError(f"Unknown codec: {codec_name}")
 
@@ -221,7 +223,8 @@ def build_result_row(video, codec_name, raw_size, encoded_size,
                      psnr_y, psnr_u, psnr_v, ssim_val,
                      rand_stats, total_frames):
     """Assemble a single CSV row dict."""
-    duration = VIDEO_DURATION
+    fps = video.get("fps", VIDEO_FPS)
+    duration = total_frames / fps if fps > 0 else 0
 
     enc_fps = total_frames / enc.wall_time if enc.wall_time > 0 else 0
     dec_fps = total_frames / dec.wall_time if dec.wall_time > 0 else 0
@@ -296,7 +299,10 @@ def process_video(video, reel_exe, csv_path):
       MP4 -> YUV420p -> encode -> decode -> verify -> random-access -> cleanup
     Intermediate files are deleted after each codec and after the video.
     """
-    video_path = VIDEOS_DIR / video["filename"]
+    if Path(video["filename"]).is_absolute():
+        video_path = Path(video["filename"])
+    else:
+        video_path = VIDEOS_DIR / video["filename"]
     width = video["width"]
     height = video["height"]
 
@@ -330,8 +336,9 @@ def process_video(video, reel_exe, csv_path):
             try:
                 # Encode
                 print(f"  [{codec_name:12s}] Encode  ...", end=" ", flush=True)
+                fps = video.get("fps", VIDEO_FPS)
                 enc = encode_with_codec(
-                    codec_name, raw_yuv, encoded_file, width, height, reel_exe
+                    codec_name, raw_yuv, encoded_file, width, height, reel_exe, fps
                 )
                 if enc.returncode != 0:
                     print("FAILED")
@@ -414,6 +421,10 @@ def main():
         "--resume", action="store_true",
         help="Skip already-processed videos (based on existing CSV)"
     )
+    parser.add_argument(
+        "--input-dir", type=str, default=None,
+        help="Path to a directory containing custom videos (.mp4, .mkv) to benchmark"
+    )
     args = parser.parse_args()
 
     print()
@@ -438,6 +449,16 @@ def main():
         print(f"Error: REEL executable not found at: {reel_exe}")
         sys.exit(1)
 
+    # ── Get Custom Videos Directory ─────────────────────────────────
+    user_input_dir = args.input_dir
+    if not user_input_dir:
+        ans = input(
+            "\nEnter path to directory containing videos to benchmark\n"
+            "  (Press Enter to use default 'benchmark/videos/'): "
+        ).strip().strip('"').strip("'")
+        if ans:
+            user_input_dir = ans
+
     # ── Validate dependencies ───────────────────────────────────────
     print("Checking dependencies ...")
     check_ffmpeg()
@@ -452,21 +473,50 @@ def main():
     save_system_info(sys_info)
     print()
 
-    # ── Load manifest ───────────────────────────────────────────────
-    if not MANIFEST_PATH.exists():
-        print(f"Error: Video manifest not found at {MANIFEST_PATH}")
-        print("Run 'python benchmark/generate_videos.py' first.")
-        sys.exit(1)
-
     manifest = []
-    with open(MANIFEST_PATH, "r") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            row["video_id"] = int(row["video_id"])
-            row["width"] = int(row["width"])
-            row["height"] = int(row["height"])
-            row["seed"] = int(row["seed"])
-            manifest.append(row)
+    input_dir = Path(user_input_dir) if user_input_dir else VIDEOS_DIR
+
+    if user_input_dir or not MANIFEST_PATH.exists():
+        if not input_dir.is_dir():
+            print(f"Error: Directory not found: {input_dir}")
+            sys.exit(1)
+        print(f"Scanning directory for video files: {input_dir} ...")
+        from utils import get_video_info
+        video_id = 0
+        valid_exts = [".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m2ts", ".vob", ".vdo"]
+        for f in sorted(input_dir.iterdir()):
+            if f.is_file() and f.suffix.lower() in valid_exts:
+                w, h, fps = get_video_info(f)
+                if w and h:
+                    manifest.append({
+                        "video_id": video_id,
+                        "filename": str(f.resolve()),
+                        "resolution": f"{w}x{h}",
+                        "width": w,
+                        "height": h,
+                        "fps": fps,
+                        "motion": "custom",
+                        "color": "custom",
+                        "seed": 0,
+                    })
+                    video_id += 1
+        print(f"  Found {len(manifest)} videos automatically.\n")
+
+    if not manifest and not user_input_dir and MANIFEST_PATH.exists():
+        with open(MANIFEST_PATH, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                row["video_id"] = int(row["video_id"])
+                row["width"] = int(row["width"])
+                row["height"] = int(row["height"])
+                row["seed"] = int(row["seed"])
+                row["fps"] = VIDEO_FPS
+                manifest.append(row)
+
+    if not manifest:
+        print(f"Error: No videos found to benchmark in {input_dir}.")
+        print("Place video files in the directory or run 'python benchmark/generate_videos.py'.")
+        sys.exit(1)
 
     if args.smoke_test:
         manifest = manifest[:3]
