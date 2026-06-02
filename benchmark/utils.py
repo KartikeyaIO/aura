@@ -15,6 +15,7 @@ import hashlib
 import platform
 import subprocess
 import statistics
+import tempfile
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -51,45 +52,48 @@ def timed_run(cmd, label="", timeout=3600):
     """
     start_wall = time.perf_counter()
 
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    with tempfile.TemporaryFile() as out_f, tempfile.TemporaryFile() as err_f:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=out_f,
+            stderr=err_f,
+        )
 
-    peak_memory = 0
-    cpu_time = 0.0
+        peak_memory = 0
+        cpu_time = 0.0
 
-    if HAS_PSUTIL:
-        try:
-            ps_proc = psutil.Process(proc.pid)
-            while proc.poll() is None:
+        if HAS_PSUTIL:
+            try:
+                ps_proc = psutil.Process(proc.pid)
+                while proc.poll() is None:
+                    try:
+                        mem_info = ps_proc.memory_info()
+                        peak_memory = max(peak_memory, mem_info.rss)
+                        ct = ps_proc.cpu_times()
+                        cpu_time = ct.user + ct.system
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        break
+                    time.sleep(0.01)  # 10ms polling
+
+                # Final read after process exits
                 try:
-                    mem_info = ps_proc.memory_info()
-                    peak_memory = max(peak_memory, mem_info.rss)
                     ct = ps_proc.cpu_times()
                     cpu_time = ct.user + ct.system
+                    mem_info = ps_proc.memory_info()
+                    peak_memory = max(peak_memory, mem_info.rss)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    break
-                time.sleep(0.01)  # 10ms polling
-
-            # Final read after process exits
-            try:
-                ct = ps_proc.cpu_times()
-                cpu_time = ct.user + ct.system
-                mem_info = ps_proc.memory_info()
-                peak_memory = max(peak_memory, mem_info.rss)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-        except psutil.NoSuchProcess:
+                    pass
+            except psutil.NoSuchProcess:
+                proc.wait()
+        else:
             proc.wait()
-    else:
-        proc.wait()
 
-    end_wall = time.perf_counter()
+        end_wall = time.perf_counter()
 
-    stdout = proc.stdout.read().decode(errors="replace") if proc.stdout else ""
-    stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
+        out_f.seek(0)
+        stdout = out_f.read().decode(errors="replace")
+        err_f.seek(0)
+        stderr = err_f.read().decode(errors="replace")
 
     if proc.returncode != 0 and label:
         print(f"\n    WARNING: {label} failed (exit {proc.returncode})")
