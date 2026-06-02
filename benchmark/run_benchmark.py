@@ -370,9 +370,11 @@ def process_video(video, reel_exe, csv_path):
                 print("LOSSLESS" if is_lossless else "LOSSY")
 
                 # PSNR / SSIM
+                print(f"  [{codec_name:12s}] Quality ...", end=" ", flush=True)
                 psnr_y, psnr_u, psnr_v, ssim_val = compute_psnr_ssim(
                     raw_yuv, decoded_yuv, width, height
                 )
+                print(f"OK  SSIM={ssim_val:.4f}")
 
                 # Random frame decode
                 print(f"  [{codec_name:12s}] Random  ...", end=" ", flush=True)
@@ -384,6 +386,7 @@ def process_video(video, reel_exe, csv_path):
                       f"p95={rand_stats['p95']:.1f}ms")
 
                 # Build result
+                print(f"  [{codec_name:12s}] Saving  ...", end=" ", flush=True)
                 row = build_result_row(
                     video, codec_name, raw_size, enc_size,
                     enc, dec, is_lossless,
@@ -391,12 +394,15 @@ def process_video(video, reel_exe, csv_path):
                     rand_stats, total_frames,
                 )
                 results.append(row)
+                print("OK")
 
             finally:
                 # Cleanup encoded + decoded after each codec
+                print(f"  [{codec_name:12s}] Cleanup ...", end=" ", flush=True)
                 safe_delete(encoded_file)
                 safe_delete(decoded_yuv)
                 safe_delete(rand_yuv)
+                print("OK")
 
         # Write results for this video (crash-safe)
         if results:
@@ -404,7 +410,9 @@ def process_video(video, reel_exe, csv_path):
 
     finally:
         # Cleanup raw YUV after all codecs are done for this video
+        print("  [Cleanup     ] Removing raw YUV ...", end=" ", flush=True)
         safe_delete(raw_yuv)
+        print("OK")
 
 
 # ────────────────────────────────────────────────────────────────────
