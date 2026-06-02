@@ -30,7 +30,7 @@ from datetime import datetime
 from config import (
     CODECS, VIDEOS_DIR, RESULTS_DIR, TEMP_DIR, CSV_PATH,
     MANIFEST_PATH, VIDEO_DURATION, VIDEO_FPS,
-    RANDOM_FRAME_COUNT, RANDOM_SEED,
+    RANDOM_FRAME_COUNT, RANDOM_SEED, SYSTEM_INFO_PATH,
 )
 from utils import (
     timed_run, timed_run_fast, safe_delete, file_size_bytes,
