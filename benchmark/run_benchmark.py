@@ -319,6 +319,8 @@ def process_video(video, reel_exe, csv_path):
         mp4_res = mp4_to_yuv(video_path, raw_yuv)
         if mp4_res.returncode != 0:
             print(f"FAILED (exit {mp4_res.returncode})")
+            if mp4_res.stderr:
+                print(f"      Error Details:\n{mp4_res.stderr}")
             return
         raw_size = file_size_bytes(raw_yuv)
         frame_size = yuv_frame_size(width, height)
@@ -342,6 +344,8 @@ def process_video(video, reel_exe, csv_path):
                 )
                 if enc.returncode != 0:
                     print("FAILED")
+                    if enc.stderr:
+                        print(f"      Encode Error:\n{enc.stderr}")
                     continue
                 enc_size = file_size_bytes(encoded_file)
                 ratio = raw_size / enc_size if enc_size > 0 else 0
@@ -355,6 +359,8 @@ def process_video(video, reel_exe, csv_path):
                 )
                 if dec.returncode != 0:
                     print("FAILED")
+                    if dec.stderr:
+                        print(f"      Decode Error:\n{dec.stderr}")
                     continue
                 print(f"OK  {dec.wall_time:.2f}s")
 
@@ -553,8 +559,10 @@ def main():
         else:
             eta_str = ""
 
+        pct = ((i + 1) / total) * 100
+
         print(f"\n{'─' * 70}")
-        print(f"[{i+1}/{total}] {video['filename']}{eta_str}")
+        print(f"[{i+1}/{total} - {pct:.1f}%] {video['filename']}{eta_str}")
         print(f"  {video['resolution']} ({video['width']}x{video['height']})  "
               f"motion={video['motion']}  color={video['color']}")
         print(f"{'─' * 70}")
