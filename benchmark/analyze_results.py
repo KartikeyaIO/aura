@@ -75,6 +75,13 @@ def load_data():
     """Load and clean benchmark CSV."""
     df = pd.read_csv(CSV_PATH)
 
+    # ── Deduplicate: keep latest run per (video_id, codec) ──────────
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df = df.sort_values("timestamp").drop_duplicates(
+            subset=["video_id", "codec"], keep="last"
+        ).reset_index(drop=True)
+
     num_cols = [
         "raw_yuv_size_bytes", "encoded_size_bytes",
         "compression_ratio", "space_savings_pct",

@@ -21,6 +21,7 @@ Usage:
 import os
 import sys
 import csv
+import json
 import random
 import argparse
 import time
@@ -39,6 +40,8 @@ from utils import (
     collect_system_info, save_system_info,
     check_ffmpeg, check_reel, CSV_COLUMNS,
 )
+
+JSONL_LOG_PATH = RESULTS_DIR / "codec_run_log.jsonl"
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -394,6 +397,12 @@ def process_video(video, reel_exe, csv_path):
                     rand_stats, total_frames,
                 )
                 results.append(row)
+                # Also write to structured JSONL log (append mode, crash-safe)
+                try:
+                    with open(JSONL_LOG_PATH, "a", encoding="utf-8") as _jf:
+                        _jf.write(json.dumps(row) + "\n")
+                except Exception:
+                    pass  # never let logging break the benchmark
                 print("OK")
 
             finally:
@@ -547,6 +556,10 @@ def main():
 
     # ── Setup output CSV ────────────────────────────────────────────
     csv_path = setup_csv()
+    # Create/touch the JSONL log file
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    if not JSONL_LOG_PATH.exists():
+        JSONL_LOG_PATH.touch()
 
     # ── Run benchmark ───────────────────────────────────────────────
     total = len(manifest)
