@@ -1,2 +1,4 @@
 /target
 /vcpkg
+/.vscode
+/benchmark/videos
