@@ -139,6 +139,36 @@ impl AuraReader {
         Ok(Some(frames))
     }
 
+    pub fn decode_all<W: std::io::Write>(&mut self, mut writer: W) -> AuraResult<()> {
+        self.inner.seek(SeekFrom::Start(FILEHEADERSIZE as u64))?;
+        for _ in 0..self.header.total_frames {
+            let mut hdr_buf = [0u8; FRAME_HEADER_SIZE];
+            self.inner.read_exact(&mut hdr_buf)?;
+            let frame_header = *from_bytes::<FrameHeader>(&hdr_buf);
+
+            let mut ydata = vec![0u8; frame_header.ylen as usize];
+            let mut udata = vec![0u8; frame_header.ulen as usize];
+            let mut vdata = vec![0u8; frame_header.vlen as usize];
+
+            self.inner.read_exact(&mut ydata)?;
+            self.inner.read_exact(&mut udata)?;
+            self.inner.read_exact(&mut vdata)?;
+
+            let compressed = CompressedFrame {
+                header: frame_header,
+                ydata,
+                udata,
+                vdata,
+            };
+
+            let decoded = compressed.decompress()?;
+            writer.write_all(decoded.ydata())?;
+            writer.write_all(decoded.udata())?;
+            writer.write_all(decoded.vdata())?;
+        }
+        Ok(())
+    }
+
     pub fn total_frames(&self) -> u64 {
         self.header.total_frames
     }
