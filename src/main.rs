@@ -82,9 +82,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if file_size % frame_size != 0 {
                 return Err(format!(
                     "Input size ({}) is not divisible by frame size ({})",
-                    file_size,
-                    frame_size
-                ).into());
+                    file_size, frame_size
+                )
+                .into());
             }
 
             let max_frames = file_size / frame_size;
@@ -94,7 +94,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         return Err(format!(
                             "Requested total frames ({}) exceeds available frames in file ({})",
                             n, max_frames
-                        ).into());
+                        )
+                        .into());
                     }
                     n
                 }
@@ -125,12 +126,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // 8. Verify frame count matches
             let reader = reel::reader::AuraReader::open(&output)?;
-            if reader.header.total_frames != frames {
+            let total_frames = reader.header.total_frames;
+            if total_frames != frames {
                 return Err(format!(
                     "Frame count mismatch. Expected {}, got {}",
-                    frames,
-                    reader.header.total_frames
-                ).into());
+                    frames, total_frames
+                )
+                .into());
             }
 
             if !quiet {
@@ -144,7 +146,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        Commands::Decode { input, output, frame } => {
+        Commands::Decode {
+            input,
+            output,
+            frame,
+        } => {
             // 1. Verify input file exists
             if !std::path::Path::new(&input).exists() {
                 return Err("Input file missing".into());
@@ -181,7 +187,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let y_size = (reader.header.width * reader.header.height) as u64;
             let uv_size = ((reader.header.width / 2) * (reader.header.height / 2)) as u64;
             let frame_size = y_size + 2 * uv_size;
-            
+
             let expected_decoded_size = match frame {
                 Some(_) => frame_size,
                 None => total_frames * frame_size,
@@ -191,9 +197,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if decoded_size != expected_decoded_size {
                 return Err(format!(
                     "Decoded size mismatch. Expected {}, got {}",
-                    expected_decoded_size,
-                    decoded_size
-                ).into());
+                    expected_decoded_size, decoded_size
+                )
+                .into());
             }
 
             if !quiet {

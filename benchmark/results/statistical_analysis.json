@@ -1,0 +1,698 @@
+{
+  "compression_ratio": {
+    "omnibus_stat": 8.114285714285714,
+    "omnibus_p": 0.2298494768619297,
+    "pairwise": [
+      {
+        "a": "REEL",
+        "b": "FFV1",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -1.6762688628804927,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "HuffYUV",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 1.6451715974548025,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "Ut_Video",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": 0.11669668289654088,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_HQ",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -0.350301448839075,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_HD",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -1.2572628534392156,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_Std",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -1.9355810957155362,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "HuffYUV",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 4.354070224728808,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "Ut_Video",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 2.3682959954259903,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_HQ",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 1.0027708671105084,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_HD",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": -0.27244649965917306,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -1.1909166943154328,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "Ut_Video",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -3.2136509227150967,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_HQ",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -1.627535112256235,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_HD",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -2.2134552625110593,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_Std",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -2.650822119316532,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_HQ",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": -0.498671382913902,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_HD",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -1.4283226133700857,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_Std",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -2.0749441726169717,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HQ",
+        "b": "ProRes_HD",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -0.9161444644766134,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HQ",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -1.6501743053738538,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HD",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -0.8339947646201289,
+        "sig": "ns"
+      }
+    ]
+  },
+  "encode_wall_time_s": {
+    "omnibus_stat": 11.657142857142858,
+    "omnibus_p": 0.07006943159531182,
+    "pairwise": [
+      {
+        "a": "REEL",
+        "b": "FFV1",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": 0.45005725931752316,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "HuffYUV",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 6.782863848912879,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "Ut_Video",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 13.797824322787484,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_HQ",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -2.7632359468799907,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_HD",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -2.3334406367117317,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_Std",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -2.683392368040326,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "HuffYUV",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 2.800376611991335,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "Ut_Video",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 3.7671521100298078,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_HQ",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -2.7794181738813433,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_HD",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -2.3760456509941603,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_Std",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -2.7185684994804205,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "Ut_Video",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 1.4194128081285156,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_HQ",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -3.851524063009835,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_HD",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -3.2812759610955107,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_Std",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -3.5518473739100798,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_HQ",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -4.124212065614141,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_HD",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -3.5090537596926685,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_Std",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -3.76036653506784,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HQ",
+        "b": "ProRes_HD",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": 0.039896980924002026,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HQ",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -0.39091282292082796,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HD",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -0.40304776731114705,
+        "sig": "ns"
+      }
+    ]
+  },
+  "decode_wall_time_s": {
+    "omnibus_stat": 7.828571428571429,
+    "omnibus_p": 0.2509336082620868,
+    "pairwise": [
+      {
+        "a": "REEL",
+        "b": "FFV1",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 3.7089253184399014,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "HuffYUV",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 4.154462286364258,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "Ut_Video",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 1.849373097342094,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_HQ",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 1.028820421891648,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_HD",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 3.7992690335383745,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 1.252019430340867,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "HuffYUV",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": -0.6391216370988757,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "Ut_Video",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": -0.50621572241099,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_HQ",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -3.5795368163080292,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_HD",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -0.27831542216226357,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_Std",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -3.043852978998133,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "Ut_Video",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": -0.2730982777111273,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_HQ",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -4.926317713146362,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_HD",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": 0.3805619784983285,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_Std",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -3.784121409184243,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_HQ",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -1.3625799213946586,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_HD",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": 0.379461004543627,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -1.1631241829932168,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HQ",
+        "b": "ProRes_HD",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": 3.8363433787203234,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HQ",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 0.3544888293151775,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HD",
+        "b": "ProRes_Std",
+        "p_raw": 0.3333333333333333,
+        "p_corr": 1.0,
+        "cohens_d": -3.1698490616231076,
+        "sig": "ns"
+      }
+    ]
+  },
+  "rand_frame_decode_avg_ms": {
+    "omnibus_stat": 2.6857142857142833,
+    "omnibus_p": 0.8471317623743185,
+    "pairwise": [
+      {
+        "a": "REEL",
+        "b": "FFV1",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -1.5394430551837073,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "HuffYUV",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -1.0873890636028543,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "Ut_Video",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -0.7520531233783969,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_HQ",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -1.3408062075234541,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_HD",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -0.9738848874617132,
+        "sig": "ns"
+      },
+      {
+        "a": "REEL",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -0.9531079092712406,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "HuffYUV",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 0.5413034917548746,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "Ut_Video",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 1.1866776089871134,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_HQ",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 0.47626241084615134,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_HD",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 0.7799139621247558,
+        "sig": "ns"
+      },
+      {
+        "a": "FFV1",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 0.8309144949383442,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "Ut_Video",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": 0.6570468717123147,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_HQ",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": -0.1022284747528073,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_HD",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 0.23092876977650836,
+        "sig": "ns"
+      },
+      {
+        "a": "HuffYUV",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 0.28127965099438285,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_HQ",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": -0.8613968992080023,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_HD",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": -0.46024535435112435,
+        "sig": "ns"
+      },
+      {
+        "a": "Ut_Video",
+        "b": "ProRes_Std",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": -0.4162014973374293,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HQ",
+        "b": "ProRes_HD",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 0.36145492305813287,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HQ",
+        "b": "ProRes_Std",
+        "p_raw": 0.6666666666666666,
+        "p_corr": 1.0,
+        "cohens_d": 0.4192860090864154,
+        "sig": "ns"
+      },
+      {
+        "a": "ProRes_HD",
+        "b": "ProRes_Std",
+        "p_raw": 1.0,
+        "p_corr": 1.0,
+        "cohens_d": 0.051373992216109776,
+        "sig": "ns"
+      }
+    ]
+  }
+}
