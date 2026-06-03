@@ -87,7 +87,7 @@ def encode_reel(yuv_path, output_path, width, height, reel_exe, fps):
     # REEL CLI expects fps as num/den; assume integer for now
     fps_int = int(round(fps))
     return timed_run([
-        reel_exe, "encode",
+        reel_exe, "--quiet", "encode",
         str(yuv_path), str(output_path),
         "--width", str(width), "--height", str(height),
         "--fps-num", str(fps_int), "--fps-den", "1",
@@ -142,7 +142,7 @@ def decode_ffmpeg(input_path, output_path):
 def decode_reel_full(input_path, output_path, reel_exe):
     """Decode REEL -> raw YUV420p (all frames)."""
     return timed_run([
-        reel_exe, "decode", str(input_path), str(output_path),
+        reel_exe, "--quiet", "decode", str(input_path), str(output_path),
     ], label="Decode REEL")
 
 
@@ -196,7 +196,7 @@ def random_frame_decode(codec_name, input_path, width, height,
         safe_delete(temp_out)
 
         if codec_name == "REEL":
-            cmd = [reel_exe, "decode", str(input_path), str(temp_out),
+            cmd = [reel_exe, "--quiet", "decode", str(input_path), str(temp_out),
                    "--frame", str(idx)]
         else:
             frame_time = idx / VIDEO_FPS
@@ -211,7 +211,7 @@ def random_frame_decode(codec_name, input_path, width, height,
 
         elapsed, rc = timed_run_fast(cmd)
         if rc == 0:
-            latencies.append(elapsed * 1000.0)  # -> milliseconds
+            latencies.append(elapsed * 1_000_000.0)  # -> microseconds
         safe_delete(temp_out)
 
     return compute_latency_stats(latencies)
@@ -351,6 +351,9 @@ def process_video(video, reel_exe, csv_path):
                         print(f"      Encode Error:\n{enc.stderr}")
                     continue
                 enc_size = file_size_bytes(encoded_file)
+                if enc_size < 1024:
+                    print("FAILED (Encoded file suspiciously small)")
+                    continue
                 ratio = raw_size / enc_size if enc_size > 0 else 0
                 print(f"OK  {enc_size/(1024*1024):8.1f} MB  "
                       f"{ratio:5.2f}x  {enc.wall_time:.2f}s")
@@ -385,8 +388,8 @@ def process_video(video, reel_exe, csv_path):
                     codec_name, encoded_file, width, height,
                     total_frames, reel_exe, rand_yuv
                 )
-                print(f"OK  avg={rand_stats['avg']:.1f}ms  "
-                      f"p95={rand_stats['p95']:.1f}ms")
+                print(f"OK  avg={rand_stats['avg']:.1f}us  "
+                      f"p95={rand_stats['p95']:.1f}us")
 
                 # Build result
                 print(f"  [{codec_name:12s}] Saving  ...", end=" ", flush=True)

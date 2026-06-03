@@ -1,60 +1,57 @@
 use clap::{Parser, Subcommand};
-use reel::frame::{FrameHeader, TimeStamp, YuvFrame};
-use reel::header::FileHeader;
-use reel::reader::AuraReader;
-use reel::writer::AuraWriter;
+use reel::{convert_to_aura, convert_to_yuv};
 use std::fs;
-use std::io::{BufReader, Read, Write};
+use std::time::Instant;
 
 #[derive(Parser)]
-#[command(name = "reel", version, about = "REEL video format CLI — encode, decode, and inspect .reel files")]
+#[command(name = "aurx")]
+#[command(version = "1.0")]
+#[command(about = "REEL encoder/decoder")]
 struct Cli {
+    #[arg(long, global = true)]
+    quiet: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Encode raw YUV420p video to .reel format
+    /// Encode YUV420p -> REEL
     Encode {
-        /// Path to input raw YUV420p file
         input: String,
-        /// Path to output .reel file
         output: String,
-        /// Frame width in pixels
+
         #[arg(long)]
         width: u32,
-        /// Frame height in pixels
+
         #[arg(long)]
         height: u32,
-        /// FPS numerator (default: 30)
-        #[arg(long, default_value_t = 30)]
+
+        #[arg(long = "fps-num", default_value_t = 30)]
         fps_num: u32,
-        /// FPS denominator (default: 1)
-        #[arg(long, default_value_t = 1)]
+
+        #[arg(long = "fps-den", default_value_t = 1)]
         fps_den: u32,
+
+        #[arg(long)]
+        total_frames: Option<u64>,
     },
-    /// Decode .reel file to raw YUV420p
+
+    /// Decode REEL -> YUV420p
     Decode {
-        /// Path to input .reel file
         input: String,
-        /// Path to output raw YUV420p file
         output: String,
-        /// Decode only a single frame by index (O(1) random access)
         #[arg(long)]
         frame: Option<u64>,
     },
-    /// Print .reel file metadata as JSON
-    Info {
-        /// Path to input .reel file
-        input: String,
-    },
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    let quiet = cli.quiet;
 
-    let result = match cli.command {
+    match cli.command {
         Commands::Encode {
             input,
             output,
@@ -62,158 +59,147 @@ fn main() {
             height,
             fps_num,
             fps_den,
-        } => encode(&input, &output, width, height, fps_num, fps_den),
-        Commands::Decode {
-            input,
-            output,
-            frame,
-        } => decode(&input, &output, frame),
-        Commands::Info { input } => info(&input),
-    };
+            total_frames,
+        } => {
+            // 1. Validate dimensions
+            if width % 2 != 0 || height % 2 != 0 {
+                return Err("YUV420p requires even width and height".into());
+            }
 
-    if let Err(e) = result {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
-    }
-}
+            // 2. Validate FPS denominator
+            if fps_den == 0 {
+                return Err("fps denominator cannot be zero".into());
+            }
 
-fn encode(
-    input: &str,
-    output: &str,
-    width: u32,
-    height: u32,
-    fps_num: u32,
-    fps_den: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let y_size = (width * height) as usize;
-    let uv_size = ((width / 2) * (height / 2)) as usize;
-    let frame_size = y_size + 2 * uv_size;
+            // 3. Validate input file
+            let metadata = fs::metadata(&input)?;
+            let y_size = (width * height) as u64;
+            let uv_size = ((width / 2) * (height / 2)) as u64;
+            let frame_size = y_size + 2 * uv_size;
+            let file_size = metadata.len();
 
-    let file_size = fs::metadata(input)?.len() as usize;
-    let total_frames = file_size / frame_size;
+            // 4. Validate divisibility
+            if file_size % frame_size != 0 {
+                return Err(format!(
+                    "Input size ({}) is not divisible by frame size ({})",
+                    file_size,
+                    frame_size
+                ).into());
+            }
 
-    if total_frames == 0 {
-        return Err("Input file too small — no complete frames found".into());
-    }
+            let max_frames = file_size / frame_size;
+            let frames = match total_frames {
+                Some(n) => {
+                    if n > max_frames {
+                        return Err(format!(
+                            "Requested total frames ({}) exceeds available frames in file ({})",
+                            n, max_frames
+                        ).into());
+                    }
+                    n
+                }
+                None => max_frames,
+            };
 
-    eprintln!(
-        "Encoding {total_frames} frames ({width}x{height} @ {fps_num}/{fps_den} fps)"
-    );
+            // 5. Validate frames > 0
+            if frames == 0 {
+                return Err("No valid frames found!".into());
+            }
 
-    let header = FileHeader::new(total_frames as u64, width, height, fps_num, fps_den);
-    let mut writer = AuraWriter::new(output, header)?;
+            let start = Instant::now();
 
-    let file = fs::File::open(input)?;
-    let mut reader = BufReader::with_capacity(8 * 1024 * 1024, file);
-    let mut frame_buf = vec![0u8; frame_size];
+            convert_to_aura(width, height, &input, &output, frames, fps_num, fps_den)?;
 
-    for i in 0..total_frames {
-        reader.read_exact(&mut frame_buf)?;
+            let elapsed = start.elapsed();
 
-        let y_data = &frame_buf[..y_size];
-        let u_data = &frame_buf[y_size..y_size + uv_size];
-        let v_data = &frame_buf[y_size + uv_size..];
+            // 6. Verify output file exists
+            if !std::path::Path::new(&output).exists() {
+                return Err("Output file missing".into());
+            }
 
-        let timestamp = TimeStamp {
-            pts: i as i64,
-            num: fps_den,
-            den: fps_num,
-        };
+            // 7. Verify size > header size
+            let compressed_size = fs::metadata(&output)?.len();
+            if compressed_size <= reel::header::FILEHEADERSIZE as u64 {
+                return Err("Compressed output size is too small (header only or empty)".into());
+            }
 
-        let fh = FrameHeader::new(
-            y_size as u32,
-            uv_size as u32,
-            uv_size as u32,
-            i as u64,
-            timestamp,
-        );
-        let frame = YuvFrame::new(fh, y_data, u_data, v_data);
-        writer.write_frame(frame)?;
+            // 8. Verify frame count matches
+            let reader = reel::reader::AuraReader::open(&output)?;
+            if reader.header.total_frames != frames {
+                return Err(format!(
+                    "Frame count mismatch. Expected {}, got {}",
+                    frames,
+                    reader.header.total_frames
+                ).into());
+            }
 
-        if (i + 1) % 100 == 0 || i + 1 == total_frames {
-            eprintln!("  frame {}/{total_frames}", i + 1);
+            if !quiet {
+                println!("Encode time: {:?}", elapsed);
+                let original_size = fs::metadata(&input)?.len();
+                println!(
+                    "Compression ratio: {:.2}x",
+                    original_size as f64 / compressed_size as f64
+                );
+                println!("Compressed size = {}", compressed_size);
+            }
         }
-    }
 
-    writer.finalize(fps_num, fps_den)?;
+        Commands::Decode { input, output, frame } => {
+            // 1. Verify input file exists
+            if !std::path::Path::new(&input).exists() {
+                return Err("Input file missing".into());
+            }
 
-    let out_size = fs::metadata(output)?.len();
-    let ratio = file_size as f64 / out_size as f64;
-    eprintln!(
-        "Done. {total_frames} frames -> {output} ({out_size} bytes, {ratio:.2}x compression)"
-    );
-    Ok(())
-}
+            let start = Instant::now();
 
-fn decode(
-    input: &str,
-    output: &str,
-    frame_index: Option<u64>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut reader = AuraReader::open(input)?;
-    let mut out_file = fs::File::create(output)?;
-
-    match frame_index {
-        Some(idx) => {
-            eprintln!("Decoding frame {idx} from {input}");
-            let decoded = reader.read_frame(idx)?;
-            out_file.write_all(decoded.ydata())?;
-            out_file.write_all(decoded.udata())?;
-            out_file.write_all(decoded.vdata())?;
-            eprintln!("Done. Frame {idx} -> {output}");
-        }
-        None => {
-            let total = reader.total_frames();
-            eprintln!("Decoding {total} frames from {input}");
-            for i in 0..total {
-                let decoded = reader.read_frame(i)?;
-                out_file.write_all(decoded.ydata())?;
-                out_file.write_all(decoded.udata())?;
-                out_file.write_all(decoded.vdata())?;
-
-                if (i + 1) % 100 == 0 || i + 1 == total {
-                    eprintln!("  frame {}/{total}", i + 1);
+            match frame {
+                Some(idx) => {
+                    let mut reader = reel::reader::AuraReader::open(&input)?;
+                    let out_file = fs::File::create(&output)?;
+                    let decoded = reader.read_frame(idx)?;
+                    let mut writer = std::io::BufWriter::new(out_file);
+                    use std::io::Write;
+                    writer.write_all(decoded.ydata())?;
+                    writer.write_all(decoded.udata())?;
+                    writer.write_all(decoded.vdata())?;
+                }
+                None => {
+                    convert_to_yuv(&input, &output)?;
                 }
             }
-            eprintln!("Done. {total} frames -> {output}");
+
+            let elapsed = start.elapsed();
+
+            // 2. Verify output exists
+            if !std::path::Path::new(&output).exists() {
+                return Err("Decoded output file missing".into());
+            }
+
+            // 3. Verify decoded size matches expected size
+            let reader = reel::reader::AuraReader::open(&input)?;
+            let total_frames = reader.header.total_frames;
+            let y_size = (reader.header.width * reader.header.height) as u64;
+            let uv_size = ((reader.header.width / 2) * (reader.header.height / 2)) as u64;
+            let frame_size = y_size + 2 * uv_size;
+            
+            let expected_decoded_size = match frame {
+                Some(_) => frame_size,
+                None => total_frames * frame_size,
+            };
+
+            let decoded_size = fs::metadata(&output)?.len();
+            if decoded_size != expected_decoded_size {
+                return Err(format!(
+                    "Decoded size mismatch. Expected {}, got {}",
+                    expected_decoded_size,
+                    decoded_size
+                ).into());
+            }
+
+            if !quiet {
+                println!("Decode time: {:?}", elapsed);
+            }
         }
     }
-
-    Ok(())
-}
-
-fn info(input: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let reader = AuraReader::open(input)?;
-    let h = reader.header;
-
-    let file_size = fs::metadata(input)?.len();
-    let total_frames = h.total_frames;
-    let width = h.width;
-    let height = h.height;
-    let fps_num = h.fps_num;
-    let fps_den = h.fps_den;
-    let duration = if fps_num > 0 {
-        total_frames as f64 * fps_den as f64 / fps_num as f64
-    } else {
-        0.0
-    };
-
-    let json = serde_json::json!({
-        "file": input,
-        "file_size_bytes": file_size,
-        "total_frames": total_frames,
-        "width": width,
-        "height": height,
-        "fps_num": fps_num,
-        "fps_den": fps_den,
-        "fps": if fps_den > 0 { fps_num as f64 / fps_den as f64 } else { 0.0 },
-        "duration_s": duration,
-        "has_audio": h.audio_offset != 0,
-        "audio_offset": h.audio_offset,
-        "audio_size": h.audio_size,
-        "oit_offset": h.oit_offset,
-    });
-
-    println!("{}", serde_json::to_string_pretty(&json)?);
     Ok(())
 }

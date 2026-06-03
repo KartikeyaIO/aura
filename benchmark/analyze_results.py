@@ -184,7 +184,7 @@ def fig_random_frame_latency_boxplot(df):
     plot_df = df[["codec", "rand_frame_decode_avg_ms"]].dropna()
     sns.boxplot(data=plot_df, x="codec", y="rand_frame_decode_avg_ms",
                 order=CODEC_ORDER, ax=ax, palette=CODEC_COLORS)
-    ax.set_xlabel("Codec"); ax.set_ylabel("Latency (ms)")
+    ax.set_xlabel("Codec"); ax.set_ylabel("Latency (µs)")
     ax.set_title("Random Frame Decode Latency")
     _save(fig, "fig_random_frame_latency_boxplot")
 
@@ -303,7 +303,7 @@ def gen_latex_overall(df):
         "\\caption{Overall Codec Performance (Mean $\\pm$ Std Dev)}",
         "\\label{tab:overall}",
         "\\begin{tabular}{lrrrrr}", "\\toprule",
-        "Codec & Comp. Ratio & Enc. (s) & Dec. (s) & Enc. FPS & Rand. (ms) \\\\",
+        "Codec & Comp. Ratio & Enc. (s) & Dec. (s) & Enc. FPS & Rand. ($\\mu$s) \\\\",
         "\\midrule",
     ]
     for c in CODEC_ORDER:
@@ -336,7 +336,7 @@ def gen_latex_by_resolution(df):
         "\\begin{table}[htbp]", "\\centering", "\\small",
         "\\caption{Performance by Resolution (Mean)}", "\\label{tab:by_resolution}",
         "\\begin{tabular}{llrrrr}", "\\toprule",
-        "Res. & Codec & Comp. & Enc.(s) & Dec.(s) & Rand.(ms) \\\\",
+        "Res. & Codec & Comp. & Enc.(s) & Dec.(s) & Rand.($\\mu$s) \\\\",
         "\\midrule",
     ]
     for res in RES_ORDER:
@@ -372,7 +372,7 @@ def gen_latex_by_motion(df):
         "% Auto-generated", "\\begin{table}[htbp]", "\\centering",
         "\\caption{Performance by Motion Type}", "\\label{tab:by_motion}",
         "\\begin{tabular}{llrrr}", "\\toprule",
-        "Motion & Codec & Comp. Ratio & Enc.(s) & Rand.(ms) \\\\", "\\midrule",
+        "Motion & Codec & Comp. Ratio & Enc.(s) & Rand.($\\mu$s) \\\\", "\\midrule",
     ]
     for m in ["low", "medium", "high"]:
         first = True
@@ -548,7 +548,7 @@ Metrics per codec per video:
 - Wall time, CPU time (encode/decode)
 - Peak RSS memory (psutil, 10ms polling)
 - File sizes, compression ratios, bitrate, bits/pixel
-- Random frame decode latency (avg, p50, p95, p99)
+- Random frame decode latency in microseconds (avg, p50, p95, p99)
 
 ## Hardware & Software
 
@@ -603,7 +603,7 @@ def generate_summary_report(df):
     for c, v in df.groupby("codec")["decode_fps"].mean().reindex(CODEC_ORDER).items():
         lines.append(f"- **{c}**: {v:.0f}")
 
-    lines += ["", "## Random Frame Access (ms, lower = better)"]
+    lines += ["", "## Random Frame Access (µs, lower = better)"]
     for c, v in df.groupby("codec")["rand_frame_decode_avg_ms"].mean().reindex(CODEC_ORDER).items():
         lines.append(f"- **{c}**: {v:.1f}")
 
