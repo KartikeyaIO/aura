@@ -1,6 +1,6 @@
 # REEL Codec Benchmark — Summary Report
 
-Generated: 2026-06-03T11:54:10.126045
+Generated: 2026-06-14T13:49:07.953044
 Videos: 2 | Codecs: REEL, FFV1, HuffYUV, Ut_Video, Lagarith, ProRes_HQ, ProRes_HD, ProRes_Std
 
 ## Compression Ratio (higher = better)
@@ -14,34 +14,34 @@ Videos: 2 | Codecs: REEL, FFV1, HuffYUV, Ut_Video, Lagarith, ProRes_HQ, ProRes_H
 - **ProRes_Std**: 7.21x
 
 ## Encode Speed (fps)
-- **REEL**: 205
-- **FFV1**: 206
-- **HuffYUV**: 883
-- **Ut_Video**: 1363
+- **REEL**: 206
+- **FFV1**: 204
+- **HuffYUV**: 915
+- **Ut_Video**: 1379
 - **Lagarith**: nan
-- **ProRes_HQ**: 108
+- **ProRes_HQ**: 109
 - **ProRes_HD**: 118
-- **ProRes_Std**: 99
+- **ProRes_Std**: 100
 
 ## Decode Speed (fps)
-- **REEL**: 294
-- **FFV1**: 533
-- **HuffYUV**: 430
-- **Ut_Video**: 557
+- **REEL**: 288
+- **FFV1**: 539
+- **HuffYUV**: 398
+- **Ut_Video**: 599
 - **Lagarith**: nan
-- **ProRes_HQ**: 319
-- **ProRes_HD**: 491
-- **ProRes_Std**: 335
+- **ProRes_HQ**: 317
+- **ProRes_HD**: 505
+- **ProRes_Std**: 382
 
 ## Random Frame Access (µs, lower = better)
-- **REEL**: 219692.8
-- **FFV1**: 337405.4
-- **HuffYUV**: 287244.3
-- **Ut_Video**: 245916.6
+- **REEL**: 182650.6
+- **FFV1**: 285614.8
+- **HuffYUV**: 238513.6
+- **Ut_Video**: 200552.8
 - **Lagarith**: nan
-- **ProRes_HQ**: 295098.8
-- **ProRes_HD**: 270223.5
-- **ProRes_Std**: 266961.0
+- **ProRes_HQ**: 243176.1
+- **ProRes_HD**: 221044.2
+- **ProRes_Std**: 223637.7
 
 ## Lossless Verification
 - **REEL**: 100% bit-exact
