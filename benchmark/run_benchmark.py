@@ -1,607 +1,592 @@
 #!/usr/bin/env python3
 """
-REEL Codec Benchmark — Main Orchestrator
-=========================================
-For each of 150 videos, runs the full pipeline:
-
-  MP4 -> YUV420p -> [FFV1 | ProRes HQ/HD/Std | REEL] -> YUV420p
-                          + random frame decode
-                          + bit-exact / PSNR / SSIM verification
-                          + cleanup after each video
-
-Results are written incrementally to CSV (crash-safe).
+REEL Benchmark — Main Runner
+==============================
+Pipeline per video:
+  MP4 → YUV420p (ffmpeg) → encode/decode/measure all codecs → delete YUV → next video
 
 Usage:
-    python benchmark/run_benchmark.py
-    python benchmark/run_benchmark.py --smoke-test
-    python benchmark/run_benchmark.py --reel-path c:\\aura\\target\\release\\reel.exe
-    python benchmark/run_benchmark.py --resume
+    python run_benchmark.py [OPTIONS]
+
+Options:
+    --input-dir PATH     Directory of .mp4 files  (default: videos/mp4)
+    --reel-exe PATH      Path to `aurx` binary     (default: auto-detect)
+    --workers N          Parallel codec workers     (default: 1, safe)
+    --skip-codecs LIST   Comma-separated codecs to skip (e.g. Lagarith,HuffYUV)
+    --resume             Skip video+codec pairs already in CSV
+    --max-videos N       Process at most N videos (for quick test runs)
+    --no-psnr            Skip PSNR/SSIM computation (faster)
 """
 
 import os
 import sys
 import csv
-import json
-import random
-import argparse
 import time
+import random
+import tempfile
+import argparse
+import subprocess
 from pathlib import Path
-from datetime import datetime
 
 from config import (
-    CODECS, VIDEOS_DIR, RESULTS_DIR, TEMP_DIR, CSV_PATH,
-    MANIFEST_PATH, VIDEO_DURATION, VIDEO_FPS,
-    RANDOM_FRAME_COUNT, RANDOM_SEED, SYSTEM_INFO_PATH,
+    CODECS, CSV_COLUMNS, RESULTS_DIR, TEMP_DIR,
+    RANDOM_FRAME_COUNT, CSV_PATH,
+    VIDEO_FPS_NUM, VIDEO_FPS_DEN,
 )
-from utils import (
-    timed_run, timed_run_fast, safe_delete, file_size_bytes,
-    yuv_frame_size, files_identical, compute_psnr_ssim,
-    compute_latency_stats, setup_csv, append_to_csv,
+from benchmark_utilities import (
+    TimedResult, timed_run, timed_run_fast,
+    calibrate_process_overhead,
+    safe_delete, file_size_bytes, get_video_info,
+    files_identical, compute_psnr_ssim,
+    setup_csv, append_to_csv,
+    compute_latency_stats,
     collect_system_info, save_system_info,
-    check_ffmpeg, check_reel, CSV_COLUMNS,
+    check_ffmpeg, check_reel,
 )
 
-JSONL_LOG_PATH = RESULTS_DIR / "codec_run_log.jsonl"
+
+# ─── Auto-detect reel binary ────────────────────────────────────────────────
+
+def find_reel_exe(hint: str = None) -> str:
+    if hint:
+        return hint
+    candidates = [
+        Path("target/release/reel.exe"),
+        Path("../target/release/reel.exe"),
+        Path("target/release/reel.exe"),
+        Path("../target/release/reel.exe"),
+    ]
+    for p in candidates:
+        if p.exists():
+            print(f"  Auto-detected REEL binary: {p.resolve()}")
+            return str(p.resolve())
+    print("WARNING: Could not auto-detect 'aurx' binary. Pass --reel-exe explicitly.")
+    return "aurx"
 
 
-# ────────────────────────────────────────────────────────────────────
-#  Encoding helpers
-# ────────────────────────────────────────────────────────────────────
+# ─── MP4 → YUV conversion ───────────────────────────────────────────────────
 
-def mp4_to_yuv(mp4_path, yuv_path):
-    """Convert MP4 -> raw YUV420p via FFmpeg."""
-    return timed_run([
+def mp4_to_yuv(mp4_path: Path, yuv_path: Path, width: int, height: int) -> bool:
+    """
+    Decode MP4 to raw yuv420p. Returns True on success.
+    Forces even dimensions to satisfy YUV420p requirement.
+    """
+    # Ensure even dimensions (crop 1px if needed — never upscale)
+    w = width  - (width  % 2)
+    h = height - (height % 2)
+    vf = f"scale={w}:{h}:flags=lanczos,format=yuv420p"
+    cmd = [
         "ffmpeg", "-y", "-i", str(mp4_path),
+        "-vf", vf,
         "-f", "rawvideo", "-pix_fmt", "yuv420p",
         str(yuv_path),
-    ], label="MP4->YUV")
+    ]
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0 or not yuv_path.exists() or yuv_path.stat().st_size == 0:
+        print(f"    ✗ YUV extraction failed: {result.stderr.decode(errors='replace')[-300:]}")
+        return False
+    return True
 
 
-def encode_ffv1(yuv_path, output_path, width, height, fps):
-    """YUV420p -> FFV1 (lossless, intra-only, GOP=1)."""
-    return timed_run([
-        "ffmpeg", "-y",
-        "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        "-s", f"{width}x{height}", "-r", str(fps),
-        "-i", str(yuv_path),
-        "-c:v", "ffv1", "-level", "3", "-g", "1",
-        str(output_path),
-    ], label="Encode FFV1")
-
-
-def encode_prores(yuv_path, output_path, width, height, profile, fps):
-    """YUV420p -> ProRes (converts to yuv422p10le internally)."""
-    return timed_run([
-        "ffmpeg", "-y",
-        "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        "-s", f"{width}x{height}", "-r", str(fps),
-        "-i", str(yuv_path),
-        "-c:v", "prores_ks", "-profile:v", profile,
-        "-pix_fmt", "yuv422p10le",
-        str(output_path),
-    ], label=f"Encode ProRes (profile {profile})")
-
-
-def encode_reel(yuv_path, output_path, width, height, reel_exe, fps):
-    """YUV420p -> REEL (.reel) format."""
-    # REEL CLI expects fps as num/den; assume integer for now
-    fps_int = int(round(fps))
-    return timed_run([
-        reel_exe, "--quiet", "encode",
-        str(yuv_path), str(output_path),
-        "--width", str(width), "--height", str(height),
-        "--fps-num", str(fps_int), "--fps-den", "1",
-    ], label="Encode REEL")
-
-
-def encode_huffyuv(yuv_path, output_path, width, height, fps):
-    """YUV420p -> HuffYUV (requires yuv422p or rgb24)."""
-    return timed_run([
-        "ffmpeg", "-y",
-        "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        "-s", f"{width}x{height}", "-r", str(fps),
-        "-i", str(yuv_path),
-        "-c:v", "huffyuv", "-pix_fmt", "yuv422p",
-        str(output_path),
-    ], label="Encode HuffYUV")
-
-
-def encode_utvideo(yuv_path, output_path, width, height, fps):
-    """YUV420p -> Ut Video."""
-    return timed_run([
-        "ffmpeg", "-y",
-        "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        "-s", f"{width}x{height}", "-r", str(fps),
-        "-i", str(yuv_path),
-        "-c:v", "utvideo",
-        str(output_path),
-    ], label="Encode Ut Video")
-
-
-def encode_lagarith(yuv_path, output_path, width, height, fps):
-    """YUV420p -> Lagarith."""
-    return timed_run([
-        "ffmpeg", "-y",
-        "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        "-s", f"{width}x{height}", "-r", str(fps),
-        "-i", str(yuv_path),
-        "-c:v", "lagarith",
-        str(output_path),
-    ], label="Encode Lagarith")
-
-
-def decode_ffmpeg(input_path, output_path):
-    """Decode FFV1/ProRes -> raw YUV420p."""
-    return timed_run([
-        "ffmpeg", "-y", "-i", str(input_path),
-        "-f", "rawvideo", "-pix_fmt", "yuv420p",
-        str(output_path),
-    ], label="Decode (FFmpeg)")
-
-
-def decode_reel_full(input_path, output_path, reel_exe):
-    """Decode REEL -> raw YUV420p (all frames)."""
-    return timed_run([
-        reel_exe, "--quiet", "decode", str(input_path), str(output_path),
-    ], label="Decode REEL")
-
-
-# ────────────────────────────────────────────────────────────────────
-#  Codec dispatch
-# ────────────────────────────────────────────────────────────────────
-
-def encode_with_codec(codec_name, yuv_path, output_path, width, height, reel_exe, fps):
-    """Dispatch encoding to the appropriate codec handler."""
-    cfg = CODECS[codec_name]
-    if codec_name == "FFV1":
-        return encode_ffv1(yuv_path, output_path, width, height, fps)
-    elif codec_name.startswith("ProRes"):
-        return encode_prores(yuv_path, output_path, width, height, cfg["profile"], fps)
-    elif codec_name == "REEL":
-        return encode_reel(yuv_path, output_path, width, height, reel_exe, fps)
-    elif codec_name == "HuffYUV":
-        return encode_huffyuv(yuv_path, output_path, width, height, fps)
-    elif codec_name == "Ut_Video":
-        return encode_utvideo(yuv_path, output_path, width, height, fps)
-    elif codec_name == "Lagarith":
-        return encode_lagarith(yuv_path, output_path, width, height, fps)
+def count_yuv_frames(yuv_path: Path, width: int, height: int) -> int:
+    frame_size = width * height * 3 // 2
+    total_bytes = yuv_path.stat().st_size
+    if total_bytes % frame_size != 0:
+        # Truncate to whole frames
+        frames = total_bytes // frame_size
     else:
-        raise ValueError(f"Unknown codec: {codec_name}")
+        frames = total_bytes // frame_size
+    return frames
 
 
-def decode_with_codec(codec_name, input_path, output_path, reel_exe):
-    """Dispatch decoding to the appropriate handler."""
-    if codec_name == "REEL":
-        return decode_reel_full(input_path, output_path, reel_exe)
-    else:
-        return decode_ffmpeg(input_path, output_path)
+# ─── Per-codec benchmark ─────────────────────────────────────────────────────
 
-
-# ────────────────────────────────────────────────────────────────────
-#  Random frame decode
-# ────────────────────────────────────────────────────────────────────
-
-def random_frame_decode(codec_name, input_path, width, height,
-                        total_frames, reel_exe, temp_out):
+def benchmark_codec(
+    codec_name: str,
+    codec_cfg: dict,
+    yuv_path: Path,
+    width: int,
+    height: int,
+    fps_num: int,
+    fps_den: int,
+    total_frames: int,
+    reel_exe: str,
+    compute_quality: bool,
+    process_overhead: dict,
+) -> dict:
     """
-    Decode RANDOM_FRAME_COUNT random frames and measure per-frame latency.
-    REEL uses O(1) OIT access; FFV1/ProRes use FFmpeg seek.
+    Encode YUV → codec, decode back to YUV, measure everything, return a row dict.
+    All temp files are created in TEMP_DIR and deleted before returning.
     """
-    rng = random.Random(42)
-    n = min(RANDOM_FRAME_COUNT, total_frames)
-    indices = sorted(rng.sample(range(total_frames), n))
-    latencies = []
+    ext      = codec_cfg["ext"]
+    pix_fmt  = codec_cfg["encode_pix_fmt"]
+    size_str = f"{width}x{height}"
+    fps_str  = f"{fps_num}/{fps_den}"
 
-    for idx in indices:
-        safe_delete(temp_out)
+    encoded_path  = TEMP_DIR / f"_bench_{codec_name}{ext}"
+    decoded_path  = TEMP_DIR / f"_bench_{codec_name}_dec.yuv"
+    decoded_ref   = TEMP_DIR / f"_bench_{codec_name}_ref.yuv"   # for lossless check
 
-        if codec_name == "REEL":
-            cmd = [reel_exe, "--quiet", "decode", str(input_path), str(temp_out),
-                   "--frame", str(idx)]
-        else:
-            frame_time = idx / VIDEO_FPS
-            cmd = [
-                "ffmpeg", "-y",
-                "-ss", f"{frame_time:.6f}",
-                "-i", str(input_path),
-                "-frames:v", "1",
-                "-f", "rawvideo", "-pix_fmt", "yuv420p",
-                str(temp_out),
-            ]
-
-        elapsed, rc = timed_run_fast(cmd)
-        if rc == 0:
-            latencies.append(elapsed * 1_000_000.0)  # -> microseconds
-        safe_delete(temp_out)
-
-    return compute_latency_stats(latencies)
-
-
-# ────────────────────────────────────────────────────────────────────
-#  Result row builder
-# ────────────────────────────────────────────────────────────────────
-
-def build_result_row(video, codec_name, raw_size, encoded_size,
-                     enc, dec, is_lossless,
-                     psnr_y, psnr_u, psnr_v, ssim_val,
-                     rand_stats, total_frames):
-    """Assemble a single CSV row dict."""
-    fps = video.get("fps", VIDEO_FPS)
-    duration = total_frames / fps if fps > 0 else 0
-
-    enc_fps = total_frames / enc.wall_time if enc.wall_time > 0 else 0
-    dec_fps = total_frames / dec.wall_time if dec.wall_time > 0 else 0
-
-    comp = raw_size / encoded_size if encoded_size > 0 else 0
-    savings = (1 - encoded_size / raw_size) * 100 if raw_size > 0 else 0
-
-    enc_rt = duration / enc.wall_time if enc.wall_time > 0 else 0
-    dec_rt = duration / dec.wall_time if dec.wall_time > 0 else 0
-
-    raw_mb = raw_size / (1024 * 1024)
-    enc_tp = raw_mb / enc.wall_time if enc.wall_time > 0 else 0
-    dec_tp = raw_mb / dec.wall_time if dec.wall_time > 0 else 0
-
-    bitrate = (encoded_size * 8) / duration / 1_000_000 if duration > 0 else 0
-    px = video["width"] * video["height"]
-    bpp = (encoded_size * 8) / (total_frames * px) if total_frames > 0 and px > 0 else 0
-
-    def fmt_psnr(v):
-        return "inf" if v == float("inf") else f"{v:.2f}"
-
-    return {
-        "video_id": video["video_id"],
-        "video_file": video["filename"],
-        "resolution": video["resolution"],
-        "width": video["width"],
-        "height": video["height"],
-        "motion_type": video["motion"],
-        "color_type": video["color"],
-        "codec": codec_name,
-        "raw_yuv_size_bytes": raw_size,
-        "encoded_size_bytes": encoded_size,
-        "compression_ratio": f"{comp:.4f}",
-        "space_savings_pct": f"{savings:.2f}",
-        "encode_wall_time_s": f"{enc.wall_time:.4f}",
-        "encode_cpu_time_s": f"{enc.cpu_time:.4f}",
-        "decode_wall_time_s": f"{dec.wall_time:.4f}",
-        "decode_cpu_time_s": f"{dec.cpu_time:.4f}",
-        "encode_fps": f"{enc_fps:.2f}",
-        "decode_fps": f"{dec_fps:.2f}",
-        "encode_realtime_ratio": f"{enc_rt:.4f}",
-        "decode_realtime_ratio": f"{dec_rt:.4f}",
-        "encode_peak_memory_mb": f"{enc.peak_memory_mb:.2f}",
-        "decode_peak_memory_mb": f"{dec.peak_memory_mb:.2f}",
-        "encode_throughput_mbps": f"{enc_tp:.2f}",
-        "decode_throughput_mbps": f"{dec_tp:.2f}",
-        "bitrate_mbps": f"{bitrate:.4f}",
-        "bits_per_pixel": f"{bpp:.6f}",
-        "is_lossless": is_lossless,
-        "psnr_y": fmt_psnr(psnr_y),
-        "psnr_u": fmt_psnr(psnr_u),
-        "psnr_v": fmt_psnr(psnr_v),
-        "ssim": f"{ssim_val:.6f}",
-        "rand_frame_decode_avg_ms": f"{rand_stats['avg']:.3f}",
-        "rand_frame_decode_p50_ms": f"{rand_stats['p50']:.3f}",
-        "rand_frame_decode_p95_ms": f"{rand_stats['p95']:.3f}",
-        "rand_frame_decode_p99_ms": f"{rand_stats['p99']:.3f}",
-        "rand_frame_decode_min_ms": f"{rand_stats['min']:.3f}",
-        "rand_frame_decode_max_ms": f"{rand_stats['max']:.3f}",
-        "rand_frame_decode_stddev_ms": f"{rand_stats['stddev']:.3f}",
-        "timestamp": datetime.now().isoformat(),
-    }
-
-
-# ────────────────────────────────────────────────────────────────────
-#  Per-video pipeline
-# ────────────────────────────────────────────────────────────────────
-
-def process_video(video, reel_exe, csv_path):
-    """
-    Full pipeline for a single video:
-      MP4 -> YUV420p -> encode -> decode -> verify -> random-access -> cleanup
-    Intermediate files are deleted after each codec and after the video.
-    """
-    if Path(video["filename"]).is_absolute():
-        video_path = Path(video["filename"])
-    else:
-        video_path = VIDEOS_DIR / video["filename"]
-    width = video["width"]
-    height = video["height"]
-
-    if not video_path.exists():
-        print(f"  WARNING: Video not found: {video_path}")
-        return
-
-    os.makedirs(TEMP_DIR, exist_ok=True)
-    raw_yuv = TEMP_DIR / "raw.yuv"
+    row = {c: "" for c in CSV_COLUMNS}
+    row["codec"] = codec_name
 
     try:
-        # ── Step 1: MP4 -> YUV420p ──────────────────────────────────
-        print("  [1] MP4 -> YUV420p ...", end=" ", flush=True)
-        mp4_res = mp4_to_yuv(video_path, raw_yuv)
-        if mp4_res.returncode != 0:
-            print(f"FAILED (exit {mp4_res.returncode})")
-            if mp4_res.stderr:
-                print(f"      Error Details:\n{mp4_res.stderr}")
-            return
-        raw_size = file_size_bytes(raw_yuv)
-        frame_size = yuv_frame_size(width, height)
-        total_frames = raw_size // frame_size
-        print(f"OK ({raw_size / (1024*1024):.1f} MB, {total_frames} frames)")
+        # ── 1. Build encode command ──────────────────────────────────────
+        if codec_name == "REEL":
+            encode_cmd = [
+                reel_exe, "encode",
+                str(yuv_path), str(encoded_path),
+                "--width", str(width), "--height", str(height),
+                "--fps-num", str(fps_num), "--fps-den", str(fps_den),
+                "--total-frames", str(total_frames),
+                "--quiet",
+            ]
+        elif codec_name == "FFV1":
+            encode_cmd = [
+                "ffmpeg", "-y",
+                "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", size_str,
+                "-r", fps_str, "-i", str(yuv_path),
+                "-c:v", "ffv1", "-level", "3", "-g", "1", "-slices", "24",
+                "-slicecrc", "1",
+                "-pix_fmt", pix_fmt,
+                str(encoded_path),
+            ]
+        elif codec_name.startswith("ProRes"):
+            profile = codec_cfg.get("profile", "2")
+            encode_cmd = [
+                "ffmpeg", "-y",
+                "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", size_str,
+                "-r", fps_str, "-i", str(yuv_path),
+                "-c:v", "prores_ks", "-profile:v", profile,
+                "-pix_fmt", pix_fmt,
+                str(encoded_path),
+            ]
+        elif codec_name == "HuffYUV":
+            encode_cmd = [
+                "ffmpeg", "-y",
+                "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", size_str,
+                "-r", fps_str, "-i", str(yuv_path),
+                "-c:v", "huffyuv", "-pix_fmt", pix_fmt,
+                str(encoded_path),
+            ]
+        elif codec_name == "Ut_Video":
+            encode_cmd = [
+                "ffmpeg", "-y",
+                "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", size_str,
+                "-r", fps_str, "-i", str(yuv_path),
+                "-c:v", "utvideo", "-pix_fmt", pix_fmt,
+                str(encoded_path),
+            ]
+        elif codec_name == "Lagarith":
+            encode_cmd = [
+                "ffmpeg", "-y",
+                "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", size_str,
+                "-r", fps_str, "-i", str(yuv_path),
+                "-c:v", "lagarith", "-pix_fmt", pix_fmt,
+                str(encoded_path),
+            ]
+        else:
+            raise ValueError(f"Unknown codec: {codec_name}")
 
-        results = []
+        # ── 2. Encode ────────────────────────────────────────────────────
+        enc_result: TimedResult = timed_run(encode_cmd, label=f"encode:{codec_name}")
+        if enc_result.returncode != 0:
+            print(f"    ✗ Encode failed ({codec_name}): {enc_result.stderr[-200:]}")
+            return row
+        if not encoded_path.exists() or encoded_path.stat().st_size == 0:
+            print(f"    ✗ Encoded file missing/empty ({codec_name})")
+            return row
 
-        # ── Step 2: Per-codec benchmark ─────────────────────────────
-        for codec_name, codec_cfg in CODECS.items():
-            encoded_file = TEMP_DIR / f"encoded{codec_cfg['ext']}"
-            decoded_yuv = TEMP_DIR / "decoded.yuv"
-            rand_yuv = TEMP_DIR / "rand_frame.yuv"
+        encoded_size  = file_size_bytes(encoded_path)
+        raw_yuv_size  = file_size_bytes(yuv_path)
+        fps_float     = fps_num / fps_den
+        duration_s    = total_frames / fps_float
 
-            try:
-                # Encode
-                print(f"  [{codec_name:12s}] Encode  ...", end=" ", flush=True)
-                fps = video.get("fps", VIDEO_FPS)
-                enc = encode_with_codec(
-                    codec_name, raw_yuv, encoded_file, width, height, reel_exe, fps
+        enc_wall = max(enc_result.wall_time, 1e-6)
+        enc_fps  = total_frames / enc_wall
+
+        # ── 3. Build decode command ──────────────────────────────────────
+        if codec_name == "REEL":
+            decode_cmd = [
+                reel_exe, "decode",
+                str(encoded_path), str(decoded_path),
+                "--quiet",
+            ]
+        else:
+            # For all FFmpeg codecs, decode back to yuv420p
+            decode_cmd = [
+                "ffmpeg", "-y",
+                "-i", str(encoded_path),
+                "-f", "rawvideo", "-pix_fmt", "yuv420p",
+                str(decoded_path),
+            ]
+
+        # ── 4. Decode ────────────────────────────────────────────────────
+        dec_result: TimedResult = timed_run(decode_cmd, label=f"decode:{codec_name}")
+        if dec_result.returncode != 0:
+            print(f"    ✗ Decode failed ({codec_name}): {dec_result.stderr[-200:]}")
+            safe_delete(encoded_path)
+            return row
+
+        dec_wall = max(dec_result.wall_time, 1e-6)
+        dec_fps  = total_frames / dec_wall
+
+        # ── 5. Lossless check ────────────────────────────────────────────
+        is_lossless = False
+        if codec_name in ("REEL", "FFV1", "Ut_Video", "Lagarith"):
+            # These should be bit-exact; check directly
+            is_lossless = files_identical(yuv_path, decoded_path)
+        else:
+            # ProRes / HuffYUV involve chroma upsampling; not expected to be bit-exact
+            is_lossless = False
+
+        # ── 6. PSNR / SSIM ──────────────────────────────────────────────
+        psnr_y = psnr_u = psnr_v = ssim = float("inf")
+        if compute_quality and decoded_path.exists():
+            psnr_y, psnr_u, psnr_v, ssim = compute_psnr_ssim(
+                yuv_path, decoded_path, width, height
+            )
+
+        # ── 7. Random frame access latency ──────────────────────────────
+        latencies_ms: list[float] = []
+        if codec_name == "REEL":
+            frame_indices = random.sample(
+                range(total_frames), min(RANDOM_FRAME_COUNT, total_frames)
+            )
+            tmp_single = TEMP_DIR / "_bench_reel_single.yuv"
+            for idx in frame_indices:
+                t0 = time.perf_counter()
+                r = subprocess.run(
+                    [reel_exe, "decode", str(encoded_path), str(tmp_single),
+                     "--frame", str(idx), "--quiet"],
+                    capture_output=True,
                 )
-                if enc.returncode != 0:
-                    print("FAILED")
-                    if enc.stderr:
-                        print(f"      Encode Error:\n{enc.stderr}")
-                    continue
-                enc_size = file_size_bytes(encoded_file)
-                if enc_size < 1024:
-                    print("FAILED (Encoded file suspiciously small)")
-                    continue
-                ratio = raw_size / enc_size if enc_size > 0 else 0
-                print(f"OK  {enc_size/(1024*1024):8.1f} MB  "
-                      f"{ratio:5.2f}x  {enc.wall_time:.2f}s")
-
-                # Decode
-                print(f"  [{codec_name:12s}] Decode  ...", end=" ", flush=True)
-                dec = decode_with_codec(
-                    codec_name, encoded_file, decoded_yuv, reel_exe
+                t1 = time.perf_counter()
+                if r.returncode == 0:
+                    elapsed_ms = (t1 - t0) * 1000.0
+                    overhead_ms = process_overhead.get("reel", 0) * 1000.0
+                    latencies_ms.append(max(elapsed_ms - overhead_ms, 0.0))
+                safe_delete(tmp_single)
+        else:
+            # FFmpeg seek-based random access
+            frame_indices = random.sample(
+                range(total_frames), min(RANDOM_FRAME_COUNT, total_frames)
+            )
+            tmp_single = TEMP_DIR / "_bench_ff_single.yuv"
+            for idx in frame_indices:
+                seek_time = idx / fps_float
+                t0 = time.perf_counter()
+                r = subprocess.run(
+                    [
+                        "ffmpeg", "-y",
+                        "-ss", f"{seek_time:.6f}",
+                        "-i", str(encoded_path),
+                        "-vframes", "1",
+                        "-f", "rawvideo", "-pix_fmt", "yuv420p",
+                        str(tmp_single),
+                    ],
+                    capture_output=True,
                 )
-                if dec.returncode != 0:
-                    print("FAILED")
-                    if dec.stderr:
-                        print(f"      Decode Error:\n{dec.stderr}")
-                    continue
-                print(f"OK  {dec.wall_time:.2f}s")
+                t1 = time.perf_counter()
+                if r.returncode == 0 and tmp_single.exists():
+                    elapsed_ms = (t1 - t0) * 1000.0
+                    overhead_ms = process_overhead.get("ffmpeg", 0) * 1000.0
+                    latencies_ms.append(max(elapsed_ms - overhead_ms, 0.0))
+                safe_delete(tmp_single)
 
-                # Lossless check
-                print(f"  [{codec_name:12s}] Verify  ...", end=" ", flush=True)
-                is_lossless = files_identical(str(raw_yuv), str(decoded_yuv))
-                print("LOSSLESS" if is_lossless else "LOSSY")
+        lat_stats = compute_latency_stats(latencies_ms)
 
-                # PSNR / SSIM
-                print(f"  [{codec_name:12s}] Quality ...", end=" ", flush=True)
-                psnr_y, psnr_u, psnr_v, ssim_val = compute_psnr_ssim(
-                    raw_yuv, decoded_yuv, width, height
-                )
-                print(f"OK  SSIM={ssim_val:.4f}")
+        # ── 8. Assemble row ──────────────────────────────────────────────
+        compression_ratio = raw_yuv_size / encoded_size if encoded_size > 0 else 0
+        space_savings     = (1 - encoded_size / raw_yuv_size) * 100 if raw_yuv_size > 0 else 0
+        bitrate_mbps      = (encoded_size * 8) / (duration_s * 1e6) if duration_s > 0 else 0
+        bpp               = (encoded_size * 8) / (total_frames * width * height) if (total_frames * width * height) > 0 else 0
 
-                # Random frame decode
-                print(f"  [{codec_name:12s}] Random  ...", end=" ", flush=True)
-                rand_stats = random_frame_decode(
-                    codec_name, encoded_file, width, height,
-                    total_frames, reel_exe, rand_yuv
-                )
-                print(f"OK  avg={rand_stats['avg']:.1f}us  "
-                      f"p95={rand_stats['p95']:.1f}us")
+        enc_tput = raw_yuv_size / enc_wall / (1024 * 1024)
+        dec_tput = raw_yuv_size / dec_wall / (1024 * 1024)
+        enc_rt   = enc_fps / fps_float
+        dec_rt   = dec_fps / fps_float
 
-                # Build result
-                print(f"  [{codec_name:12s}] Saving  ...", end=" ", flush=True)
-                row = build_result_row(
-                    video, codec_name, raw_size, enc_size,
-                    enc, dec, is_lossless,
-                    psnr_y, psnr_u, psnr_v, ssim_val,
-                    rand_stats, total_frames,
-                )
-                results.append(row)
-                # Also write to structured JSONL log (append mode, crash-safe)
-                try:
-                    with open(JSONL_LOG_PATH, "a", encoding="utf-8") as _jf:
-                        _jf.write(json.dumps(row) + "\n")
-                except Exception:
-                    pass  # never let logging break the benchmark
-                print("OK")
-
-            finally:
-                # Cleanup encoded + decoded after each codec
-                print(f"  [{codec_name:12s}] Cleanup ...", end=" ", flush=True)
-                safe_delete(encoded_file)
-                safe_delete(decoded_yuv)
-                safe_delete(rand_yuv)
-                print("OK")
-
-        # Write results for this video (crash-safe)
-        if results:
-            append_to_csv(csv_path, results)
+        row.update({
+            "raw_yuv_size_bytes":       raw_yuv_size,
+            "encoded_size_bytes":       encoded_size,
+            "compression_ratio":        round(compression_ratio, 4),
+            "space_savings_pct":        round(space_savings, 2),
+            "encode_wall_time_s":       round(enc_result.wall_time, 4),
+            "encode_cpu_time_s":        round(enc_result.cpu_time, 4),
+            "decode_wall_time_s":       round(dec_result.wall_time, 4),
+            "decode_cpu_time_s":        round(dec_result.cpu_time, 4),
+            "encode_fps":               round(enc_fps, 2),
+            "decode_fps":               round(dec_fps, 2),
+            "encode_realtime_ratio":    round(enc_rt, 4),
+            "decode_realtime_ratio":    round(dec_rt, 4),
+            "encode_peak_memory_mb":    round(enc_result.peak_memory_mb, 2),
+            "decode_peak_memory_mb":    round(dec_result.peak_memory_mb, 2),
+            "encode_throughput_mbps":   round(enc_tput, 2),
+            "decode_throughput_mbps":   round(dec_tput, 2),
+            "bitrate_mbps":             round(bitrate_mbps, 4),
+            "bits_per_pixel":           round(bpp, 6),
+            "is_lossless":              is_lossless,
+            "psnr_y":                   psnr_y,
+            "psnr_u":                   psnr_u,
+            "psnr_v":                   psnr_v,
+            "ssim":                     ssim,
+            "rand_frame_decode_avg_ms": round(lat_stats["avg"],    3),
+            "rand_frame_decode_p50_ms": round(lat_stats["p50"],    3),
+            "rand_frame_decode_p95_ms": round(lat_stats["p95"],    3),
+            "rand_frame_decode_p99_ms": round(lat_stats["p99"],    3),
+            "rand_frame_decode_min_ms": round(lat_stats["min"],    3),
+            "rand_frame_decode_max_ms": round(lat_stats["max"],    3),
+            "rand_frame_decode_stddev_ms": round(lat_stats["stddev"], 3),
+            "timestamp":                time.strftime("%Y-%m-%dT%H:%M:%S"),
+        })
 
     finally:
-        # Cleanup raw YUV after all codecs are done for this video
-        print("  [Cleanup     ] Removing raw YUV ...", end=" ", flush=True)
-        safe_delete(raw_yuv)
-        print("OK")
+        safe_delete(encoded_path)
+        safe_delete(decoded_path)
+
+    return row
 
 
-# ────────────────────────────────────────────────────────────────────
-#  Main
-# ────────────────────────────────────────────────────────────────────
+# ─── Per-video pipeline ─────────────────────────────────────────────────────
+
+def probe_mp4(mp4_path: Path):
+    """Returns (width, height, fps_num, fps_den). Falls back to 1920x1080@30."""
+    try:
+        cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,r_frame_rate",
+            "-of", "csv=s=x:p=0", str(mp4_path),
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if r.returncode == 0 and r.stdout.strip():
+            parts = r.stdout.strip().split("x")
+            w, h = int(parts[0]), int(parts[1])
+            fps_str = parts[2]
+            if "/" in fps_str:
+                num, den = map(int, fps_str.split("/"))
+            else:
+                num = int(float(fps_str) * 1000)
+                den = 1000
+            return w, h, num, den
+    except Exception as e:
+        print(f"    Warning: probe failed for {mp4_path.name}: {e}")
+    return 1920, 1080, 30000, 1001
+
+
+def run_video(
+    video_id: int,
+    mp4_path: Path,
+    reel_exe: str,
+    codecs_to_run: dict,
+    done_codecs: set,
+    compute_quality: bool,
+    process_overhead: dict,
+) -> list[dict]:
+    """Full pipeline for one MP4. Returns list of result rows (one per codec)."""
+    print(f"\n[{video_id:>4}] {mp4_path.name}")
+
+    # ── Probe ──────────────────────────────────────────────────────────
+    raw_w, raw_h, fps_num, fps_den = probe_mp4(mp4_path)
+    # Round to even (YUV420p requirement)
+    width  = raw_w - (raw_w % 2)
+    height = raw_h - (raw_h % 2)
+    fps_float = fps_num / fps_den
+    print(f"         {width}x{height}  {fps_num}/{fps_den} fps")
+
+    # ── Resolution label ───────────────────────────────────────────────
+    res_map = {
+        (256, 144): "144p", (426, 240): "240p", (640, 360): "360p",
+        (854, 480): "480p", (1280, 720): "720p", (1920, 1080): "1080p",
+        (2560, 1440): "1440p", (3840, 2160): "4k",
+    }
+    resolution = res_map.get((width, height), f"{width}x{height}")
+
+    # ── Extract YUV (shared across all codecs for this video) ──────────
+    yuv_path = TEMP_DIR / f"_bench_{video_id}.yuv"
+    print(f"         Extracting YUV ...", end=" ", flush=True)
+    t0 = time.perf_counter()
+    ok = mp4_to_yuv(mp4_path, yuv_path, width, height)
+    if not ok:
+        print(f"\n    ✗ YUV extraction failed — skipping {mp4_path.name}")
+        safe_delete(yuv_path)
+        return []
+    total_frames = count_yuv_frames(yuv_path, width, height)
+    if total_frames == 0:
+        print(f"\n    ✗ Zero frames extracted — skipping")
+        safe_delete(yuv_path)
+        return []
+    print(f"{total_frames} frames in {time.perf_counter()-t0:.1f}s")
+
+    rows = []
+    base_row = {
+        "video_id":   video_id,
+        "video_file": mp4_path.name,
+        "resolution": resolution,
+        "width":      width,
+        "height":     height,
+        "fps_num":    fps_num,
+        "fps_den":    fps_den,
+        "motion_type": "",   # unknown for real videos
+        "color_type":  "",
+    }
+
+    try:
+        for codec_name, codec_cfg in codecs_to_run.items():
+            if codec_name in done_codecs:
+                print(f"         [SKIP] {codec_name} (already in CSV)")
+                continue
+
+            print(f"         [{codec_name:<12}] ", end="", flush=True)
+            t_codec = time.perf_counter()
+
+            row = benchmark_codec(
+                codec_name, codec_cfg,
+                yuv_path, width, height, fps_num, fps_den, total_frames,
+                reel_exe, compute_quality, process_overhead,
+            )
+            elapsed = time.perf_counter() - t_codec
+
+            if row.get("encode_fps"):
+                print(f"enc {row['encode_fps']:.0f}fps  "
+                      f"dec {row['decode_fps']:.0f}fps  "
+                      f"ratio {row['compression_ratio']:.2f}x  "
+                      f"({elapsed:.1f}s)")
+            else:
+                print("FAILED")
+
+            row.update(base_row)
+            rows.append(row)
+
+    finally:
+        # ── Delete YUV — this is the key step ─────────────────────────
+        safe_delete(yuv_path)
+        print(f"         YUV deleted.")
+
+    return rows
+
+
+# ─── Existing results loader ─────────────────────────────────────────────────
+
+def load_done_pairs(csv_path: Path) -> set:
+    """Returns set of (video_file, codec) tuples already in CSV."""
+    done = set()
+    if not csv_path.exists():
+        return done
+    with open(csv_path, newline="") as f:
+        for row in csv.DictReader(f):
+            vf = row.get("video_file", "")
+            cd = row.get("codec", "")
+            if vf and cd:
+                done.add((vf, cd))
+    return done
+
+
+# ─── Main ────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="REEL Codec Benchmark — Compare REEL vs FFV1 vs ProRes"
-    )
-    parser.add_argument(
-        "--smoke-test", action="store_true",
-        help="Run only 3 videos for quick validation"
-    )
-    parser.add_argument(
-        "--reel-path", type=str, default=None,
-        help="Path to reel.exe (will prompt if not provided)"
-    )
-    parser.add_argument(
-        "--resume", action="store_true",
-        help="Skip already-processed videos (based on existing CSV)"
-    )
-    parser.add_argument(
-        "--input-dir", type=str, default=None,
-        help="Path to a directory containing custom videos (.mp4, .mkv) to benchmark"
-    )
+    parser = argparse.ArgumentParser(description="REEL Benchmark Runner")
+    parser.add_argument("--input-dir",    default=None,
+                        help="Directory of .mp4 files (default: videos/mp4)")
+    parser.add_argument("--reel-exe",     default=None,
+                        help="Path to aurx binary")
+    parser.add_argument("--workers",      type=int, default=1,
+                        help="Parallel video workers (default: 1)")
+    parser.add_argument("--skip-codecs",  default="",
+                        help="Comma-separated codec names to skip")
+    parser.add_argument("--resume",       action="store_true",
+                        help="Skip (video, codec) pairs already in CSV")
+    parser.add_argument("--max-videos",   type=int, default=None,
+                        help="Process at most N videos")
+    parser.add_argument("--no-psnr",      action="store_true",
+                        help="Skip PSNR/SSIM (faster)")
     args = parser.parse_args()
 
-    print()
-    print("=" * 70)
-    print("  REEL Codec Benchmarking Pipeline")
-    print("  Codecs: REEL | FFV1 | ProRes HQ | ProRes HD | ProRes Standard")
-    print("=" * 70)
-    print()
+    base_dir   = Path(__file__).parent
+    input_dir  = Path(args.input_dir) if args.input_dir else base_dir / "videos" / "mp4"
+    reel_exe   = find_reel_exe(args.reel_exe)
+    skip_set   = {c.strip() for c in args.skip_codecs.split(",") if c.strip()}
+    compute_q  = not args.no_psnr
 
-    # ── Get REEL executable path ────────────────────────────────────
-    reel_exe = args.reel_path
-    if not reel_exe:
-        reel_exe = input(
-            "Enter path to REEL executable\n"
-            "  (e.g. c:\\aura\\target\\release\\reel.exe): "
-        ).strip().strip('"').strip("'")
-        if not reel_exe:
-            print("No path provided. Exiting.")
-            sys.exit(1)
+    print("=" * 70)
+    print("  REEL Benchmark Runner")
+    print("=" * 70)
 
-    if not os.path.isfile(reel_exe):
-        print(f"Error: REEL executable not found at: {reel_exe}")
+    # ── Preflight checks ───────────────────────────────────────────────
+    check_ffmpeg()
+    check_reel(reel_exe)
+
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    csv_path = setup_csv(CSV_PATH)
+
+    # ── Collect codecs ─────────────────────────────────────────────────
+    codecs_to_run = {k: v for k, v in CODECS.items() if k not in skip_set}
+    print(f"  Codecs     : {', '.join(codecs_to_run)}")
+
+    # ── Collect videos ─────────────────────────────────────────────────
+    if not input_dir.exists():
+        print(f"\nERROR: Input directory not found: {input_dir}")
+        print("Run downloader.py first.")
         sys.exit(1)
 
-    # ── Get Custom Videos Directory ─────────────────────────────────
-    user_input_dir = args.input_dir
-    if not user_input_dir:
-        ans = input(
-            "\nEnter path to directory containing videos to benchmark\n"
-            "  (Press Enter to use default 'benchmark/videos/'): "
-        ).strip().strip('"').strip("'")
-        if ans:
-            user_input_dir = ans
+    mp4_files = sorted(input_dir.glob("*.mp4"))
+    if not mp4_files:
+        print(f"\nERROR: No .mp4 files found in {input_dir}")
+        sys.exit(1)
 
-    # ── Validate dependencies ───────────────────────────────────────
-    print("Checking dependencies ...")
-    check_ffmpeg()
-    print("  [OK] FFmpeg")
-    check_reel(reel_exe)
-    print(f"  [OK] REEL: {reel_exe}")
+    if args.max_videos:
+        mp4_files = mp4_files[:args.max_videos]
+
+    print(f"  Videos     : {len(mp4_files)} MP4 files in {input_dir}")
+    print(f"  Output CSV : {csv_path}")
+    print(f"  REEL bin   : {reel_exe}")
+    print(f"  PSNR/SSIM  : {'yes' if compute_q else 'no (--no-psnr)'}")
     print()
 
-    # ── Collect system info ─────────────────────────────────────────
-    print("Collecting system info ...")
+    # ── Calibrate OS spawn overhead ────────────────────────────────────
+    print("Calibrating ...")
+    process_overhead = calibrate_process_overhead(reel_exe)
+    print()
+
+    # ── System info ────────────────────────────────────────────────────
     sys_info = collect_system_info(reel_exe)
     save_system_info(sys_info)
+
+    # ── Load already-done pairs for --resume ───────────────────────────
+    done_pairs = load_done_pairs(csv_path) if args.resume else set()
+
+    # ── Run ────────────────────────────────────────────────────────────
+    t_start   = time.perf_counter()
+    total_rows = 0
+
+    for video_id, mp4_path in enumerate(mp4_files):
+        done_codecs_for_video = {
+            codec for (vf, codec) in done_pairs if vf == mp4_path.name
+        }
+
+        rows = run_video(
+            video_id       = video_id,
+            mp4_path       = mp4_path,
+            reel_exe       = reel_exe,
+            codecs_to_run  = codecs_to_run,
+            done_codecs    = done_codecs_for_video,
+            compute_quality= compute_q,
+            process_overhead= process_overhead,
+        )
+
+        if rows:
+            append_to_csv(csv_path, rows)
+            total_rows += len(rows)
+
+    elapsed = time.perf_counter() - t_start
     print()
-
-    manifest = []
-    input_dir = Path(user_input_dir) if user_input_dir else VIDEOS_DIR
-
-    if user_input_dir or not MANIFEST_PATH.exists():
-        if not input_dir.is_dir():
-            print(f"Error: Directory not found: {input_dir}")
-            sys.exit(1)
-        print(f"Scanning directory for video files: {input_dir} ...")
-        from utils import get_video_info
-        video_id = 0
-        valid_exts = [".mp4", ".mkv", ".avi", ".mov", ".webm", ".ts", ".m2ts", ".vob", ".vdo"]
-        for f in sorted(input_dir.iterdir()):
-            if f.is_file() and f.suffix.lower() in valid_exts:
-                w, h, fps = get_video_info(f)
-                if w and h:
-                    manifest.append({
-                        "video_id": video_id,
-                        "filename": str(f.resolve()),
-                        "resolution": f"{w}x{h}",
-                        "width": w,
-                        "height": h,
-                        "fps": fps,
-                        "motion": "custom",
-                        "color": "custom",
-                        "seed": 0,
-                    })
-                    video_id += 1
-        print(f"  Found {len(manifest)} videos automatically.\n")
-
-    if not manifest and not user_input_dir and MANIFEST_PATH.exists():
-        with open(MANIFEST_PATH, "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                row["video_id"] = int(row["video_id"])
-                row["width"] = int(row["width"])
-                row["height"] = int(row["height"])
-                row["seed"] = int(row["seed"])
-                row["fps"] = VIDEO_FPS
-                manifest.append(row)
-
-    if not manifest:
-        print(f"Error: No videos found to benchmark in {input_dir}.")
-        print("Place video files in the directory or run 'python benchmark/generate_videos.py'.")
-        sys.exit(1)
-
-    if args.smoke_test:
-        manifest = manifest[:3]
-        print(f"  SMOKE TEST: running {len(manifest)} videos only\n")
-
-    # ── Resume support ──────────────────────────────────────────────
-    processed_ids = set()
-    if args.resume and CSV_PATH.exists():
-        with open(CSV_PATH, "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                processed_ids.add(int(row["video_id"]))
-        print(f"  Resuming: {len(processed_ids)} videos already processed\n")
-
-    # ── Setup output CSV ────────────────────────────────────────────
-    csv_path = setup_csv()
-    # Create/touch the JSONL log file
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    if not JSONL_LOG_PATH.exists():
-        JSONL_LOG_PATH.touch()
-
-    # ── Run benchmark ───────────────────────────────────────────────
-    total = len(manifest)
-    start_time = time.time()
-
-    for i, video in enumerate(manifest):
-        vid = video["video_id"]
-
-        if vid in processed_ids:
-            print(f"[{i+1}/{total}] SKIP video {vid} (already processed)")
-            continue
-
-        elapsed = time.time() - start_time
-        if i > 0 and elapsed > 0:
-            rate = elapsed / i
-            eta = rate * (total - i)
-            eta_str = f" | ETA: {eta/60:.0f} min"
-        else:
-            eta_str = ""
-
-        pct = ((i + 1) / total) * 100
-
-        print(f"\n{'─' * 70}")
-        print(f"[{i+1}/{total} - {pct:.1f}%] {video['filename']}{eta_str}")
-        print(f"  {video['resolution']} ({video['width']}x{video['height']})  "
-              f"motion={video['motion']}  color={video['color']}")
-        print(f"{'─' * 70}")
-
-        process_video(video, reel_exe, csv_path)
-
-    # ── Done ────────────────────────────────────────────────────────
-    total_time = time.time() - start_time
-    print(f"\n{'=' * 70}")
-    print(f"  Benchmark complete!")
-    print(f"  Total time: {total_time/60:.1f} minutes")
-    print(f"  Results CSV: {csv_path}")
-    print(f"  System info: {SYSTEM_INFO_PATH}")
-    print(f"{'=' * 70}")
-    print(f"\nNext step:  python benchmark/analyze_results.py")
+    print("=" * 70)
+    print(f"  Done. {total_rows} rows written in {elapsed/60:.1f} min")
+    print(f"  CSV : {csv_path}")
+    print("=" * 70)
+    print()
+    print("Run analyze_results.py to generate charts and report.")
 
 
 if __name__ == "__main__":

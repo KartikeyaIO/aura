@@ -49,13 +49,7 @@ pub fn convert_to_aura(
             den: fps_num,
         };
 
-        let fh = FrameHeader::new(
-            y_size as u32,
-            uv_size as u32,
-            uv_size as u32,
-            i,
-            timestamp,
-        );
+        let fh = FrameHeader::new(y_size as u32, uv_size as u32, uv_size as u32, i, timestamp);
         let frame = YuvFrame::new(fh, y_data, u_data, v_data);
         writer.write_frame(frame)?;
     }
@@ -64,15 +58,14 @@ pub fn convert_to_aura(
     Ok(())
 }
 
-pub fn convert_to_yuv(
-    input: &str,
-    output: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn convert_to_yuv(input: &str, output: &str) -> Result<(), Box<dyn std::error::Error>> {
     use crate::reader::AuraReader;
     use std::fs;
+    use std::io::BufWriter;
 
     let mut reader = AuraReader::open(input)?;
     let out_file = fs::File::create(output)?;
-    reader.decode_all(out_file)?;
+    let buffered = BufWriter::with_capacity(64 * 1024 * 1024, out_file);
+    reader.decode_all(buffered)?;
     Ok(())
 }

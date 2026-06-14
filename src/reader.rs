@@ -140,32 +140,51 @@ impl AuraReader {
     }
 
     pub fn decode_all<W: std::io::Write>(&mut self, mut writer: W) -> AuraResult<()> {
+        use std::io::Read as _;
+
+        let width = self.header.width as usize;
+        let height = self.header.height as usize;
+        let y_decoded_len = width * height;
+        let uv_decoded_len = (width / 2) * (height / 2);
+
+        let mut read_buf: Vec<u8> = Vec::with_capacity(y_decoded_len);
+        let mut decode_buf: Vec<u8> = vec![0u8; y_decoded_len];
+
         self.inner.seek(SeekFrom::Start(FILEHEADERSIZE as u64))?;
+
         for _ in 0..self.header.total_frames {
             let mut hdr_buf = [0u8; FRAME_HEADER_SIZE];
             self.inner.read_exact(&mut hdr_buf)?;
             let frame_header = *from_bytes::<FrameHeader>(&hdr_buf);
 
-            let mut ydata = vec![0u8; frame_header.ylen as usize];
-            let mut udata = vec![0u8; frame_header.ulen as usize];
-            let mut vdata = vec![0u8; frame_header.vlen as usize];
+            let ylen = frame_header.ylen as usize;
+            read_buf.resize(ylen, 0);
+            self.inner.read_exact(&mut read_buf[..ylen])?;
+            let mut dec = zstd::Decoder::new(&read_buf[..ylen])
+                .map_err(|e| AuraError::Decompression(e.to_string()))?;
+            dec.read_exact(&mut decode_buf[..y_decoded_len])
+                .map_err(|e| AuraError::Decompression(e.to_string()))?;
+            writer.write_all(&decode_buf[..y_decoded_len])?;
 
-            self.inner.read_exact(&mut ydata)?;
-            self.inner.read_exact(&mut udata)?;
-            self.inner.read_exact(&mut vdata)?;
+            let ulen = frame_header.ulen as usize;
+            read_buf.resize(ulen, 0);
+            self.inner.read_exact(&mut read_buf[..ulen])?;
+            let mut dec = zstd::Decoder::new(&read_buf[..ulen])
+                .map_err(|e| AuraError::Decompression(e.to_string()))?;
+            dec.read_exact(&mut decode_buf[..uv_decoded_len])
+                .map_err(|e| AuraError::Decompression(e.to_string()))?;
+            writer.write_all(&decode_buf[..uv_decoded_len])?;
 
-            let compressed = CompressedFrame {
-                header: frame_header,
-                ydata,
-                udata,
-                vdata,
-            };
-
-            let decoded = compressed.decompress()?;
-            writer.write_all(decoded.ydata())?;
-            writer.write_all(decoded.udata())?;
-            writer.write_all(decoded.vdata())?;
+            let vlen = frame_header.vlen as usize;
+            read_buf.resize(vlen, 0);
+            self.inner.read_exact(&mut read_buf[..vlen])?;
+            let mut dec = zstd::Decoder::new(&read_buf[..vlen])
+                .map_err(|e| AuraError::Decompression(e.to_string()))?;
+            dec.read_exact(&mut decode_buf[..uv_decoded_len])
+                .map_err(|e| AuraError::Decompression(e.to_string()))?;
+            writer.write_all(&decode_buf[..uv_decoded_len])?;
         }
+
         Ok(())
     }
 
