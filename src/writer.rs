@@ -63,7 +63,14 @@ impl AuraWriter {
         Ok(())
     }
 
-    pub fn write_compressed_frame(&mut self, compressed: CompressedFrame) -> AuraResult<()> {
+    pub fn write_compressed_frame(
+        &mut self,
+        compressed: CompressedFrame,
+    ) -> crate::error::AuraResult<()> {
+        use crate::oit::OitEntry;
+        use bytemuck::bytes_of;
+        use std::io::Write;
+
         self.oit.push(OitEntry {
             byte_offset: self.current_offset,
         });
@@ -76,7 +83,7 @@ impl AuraWriter {
         self.current_offset += frame_header.ylen as u64;
 
         self.inner.write_all(&compressed.udata)?;
-        self.current_offset += frame_header.vlen as u64;
+        self.current_offset += frame_header.ulen as u64;
 
         self.inner.write_all(&compressed.vdata)?;
         self.current_offset += frame_header.vlen as u64;

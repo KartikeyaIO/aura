@@ -34,24 +34,28 @@ pub fn convert_to_aura(
     let mut writer = AuraWriter::new(output, header)?;
 
     let file = fs::File::open(input)?;
-    let mut reader = BufReader::with_capacity(32 * 1024 * 1024, file);
+    // Restoring original 8MB buffer size to prevent alignment quirks
+    let mut reader = BufReader::with_capacity(8 * 1024 * 1024, file);
 
-    // Process frames in batches of 64 to avoid high memory allocation while maintaining high concurrency
-    let batch_size = 64;
+    let batch_size = 64usize;
     let mut frame_index = 0u64;
 
     while frame_index < frames {
-        let current_batch_count = std::cmp::min(batch_size, frames - frame_index);
-        let mut raw_frames_batch = Vec::with_capacity(current_batch_count as usize);
+        // Force explicit casting to prevent type mismatch or over-reading
+        let remaining = (frames - frame_index) as usize;
+        let current_batch_count = std::cmp::min(batch_size, remaining);
 
-        // 1. Read a whole block of raw frames sequentially from disk
+        let mut raw_frames_batch = Vec::with_capacity(current_batch_count);
+
+        // 1. Read sequential raw frames safely from disk
         for i in 0..current_batch_count {
             let mut frame_buf = vec![0u8; frame_size];
             reader.read_exact(&mut frame_buf)?;
-            raw_frames_batch.push((frame_index + i, frame_buf));
+            raw_frames_batch.push((frame_index + i as u64, frame_buf));
         }
 
-        let compressed_batch: Vec<error::AuraResult<CompressedFrame>> = raw_frames_batch
+        // 2. Parallel compression across all available threads
+        let compressed_batch: Vec<crate::error::AuraResult<CompressedFrame>> = raw_frames_batch
             .into_par_iter()
             .map(|(idx, buf)| {
                 let y_data = &buf[..y_size];
@@ -76,12 +80,13 @@ pub fn convert_to_aura(
             })
             .collect();
 
+        // 3. Write back sequentially to preserve perfect OIT layout
         for res in compressed_batch {
             let compressed_frame = res?;
             writer.write_compressed_frame(compressed_frame)?;
         }
 
-        frame_index += current_batch_count;
+        frame_index += current_batch_count as u64;
     }
 
     writer.finalize(fps_num, fps_den)?;
