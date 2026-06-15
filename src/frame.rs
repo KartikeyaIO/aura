@@ -185,17 +185,18 @@ impl<'a> YuvFrame<'a> {
 
     pub fn compress(&self) -> AuraResult<CompressedFrame> {
         let (y, (u, v)) = rayon::join(
-            || zstd::encode_all(self.ydata, 1),
+            || zstd::encode_all(self.ydata, -3),
             || {
                 rayon::join(
-                    || zstd::encode_all(self.udata, 1),
-                    || zstd::encode_all(self.vdata, 1),
+                    || zstd::encode_all(self.udata, -3),
+                    || zstd::encode_all(self.vdata, -3),
                 )
             },
         );
-        let y = y?;
-        let u = u?;
-        let v = v?;
+        let y = y.map_err(|e| AuraError::Compression(e.to_string()))?;
+        let u = u.map_err(|e| AuraError::Compression(e.to_string()))?;
+        let v = v.map_err(|e| AuraError::Compression(e.to_string()))?;
+
         let mut header = self.header;
         header.ylen = y.len() as u32;
         header.ulen = u.len() as u32;
@@ -207,20 +208,6 @@ impl<'a> YuvFrame<'a> {
             udata: u,
             vdata: v,
         })
-    }
-}
-impl<'a> YuvFrame<'a> {
-    pub fn header(&self) -> FrameHeader {
-        self.header
-    }
-    pub fn ydata(&self) -> &[u8] {
-        self.ydata
-    }
-    pub fn udata(&self) -> &[u8] {
-        self.udata
-    }
-    pub fn vdata(&self) -> &[u8] {
-        self.vdata
     }
 }
 impl CompressedFrame {

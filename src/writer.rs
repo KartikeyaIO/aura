@@ -1,6 +1,6 @@
 use crate::{
     error::AuraResult,
-    frame::{AudioFrame, YuvFrame},
+    frame::{AudioFrame, CompressedFrame, YuvFrame},
     header::{FILEHEADERSIZE, FileHeader},
     oit::{OitEntry, write_oit},
 };
@@ -55,6 +55,28 @@ impl AuraWriter {
 
         self.inner.write_all(&compressed.udata)?;
         self.current_offset += frame_header.ulen as u64;
+
+        self.inner.write_all(&compressed.vdata)?;
+        self.current_offset += frame_header.vlen as u64;
+
+        self.frame_count += 1;
+        Ok(())
+    }
+
+    pub fn write_compressed_frame(&mut self, compressed: CompressedFrame) -> AuraResult<()> {
+        self.oit.push(OitEntry {
+            byte_offset: self.current_offset,
+        });
+
+        let frame_header = compressed.header;
+        self.inner.write_all(bytes_of(&frame_header))?;
+        self.current_offset += crate::frame::FRAME_HEADER_SIZE as u64;
+
+        self.inner.write_all(&compressed.ydata)?;
+        self.current_offset += frame_header.ylen as u64;
+
+        self.inner.write_all(&compressed.udata)?;
+        self.current_offset += frame_header.vlen as u64;
 
         self.inner.write_all(&compressed.vdata)?;
         self.current_offset += frame_header.vlen as u64;
