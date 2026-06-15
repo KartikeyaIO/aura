@@ -27,7 +27,7 @@ VIDEO_DURATION = 30    # seconds per clip
 VIDEO_FPS_NUM = 30000  # Default fps numerator
 VIDEO_FPS_DEN = 1000   # Default fps denominator (30.0 fps)
 TOTAL_VIDEOS = 150     # total test videos to generate
-RANDOM_FRAME_COUNT = 10  # random frames to decode per video per codec
+RANDOM_FRAME_COUNT = 100  # random frames to decode per video per codec
 
 # ─── Resolutions ────────────────────────────────────────────────────
 RESOLUTIONS = {
@@ -78,11 +78,8 @@ CODECS = {
     "Ut_Video": {
         "ext": ".avi",
         "encode_pix_fmt": "yuv420p",
-    },
-    "Lagarith": {
-        "ext": ".avi",
-        "encode_pix_fmt": "yuv420p",
-    },
+    }
+    
 }
 
 # ─── CSV Column Schema ─────────────────────────────────────────────

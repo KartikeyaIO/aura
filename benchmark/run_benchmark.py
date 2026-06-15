@@ -53,8 +53,8 @@ def find_reel_exe(hint: str = None) -> str:
     candidates = [
         Path("target/release/reel.exe"),
         Path("../target/release/reel.exe"),
-        Path("target/release/reel.exe"),
-        Path("../target/release/reel.exe"),
+        Path("target/release/reel"),
+        Path("../target/release/reel"),
     ]
     for p in candidates:
         if p.exists():
@@ -448,9 +448,11 @@ def run_video(
             elapsed = time.perf_counter() - t_codec
 
             if row.get("encode_fps"):
+                rand_ms = row.get("rand_frame_decode_avg_ms", 0)
                 print(f"enc {row['encode_fps']:.0f}fps  "
                       f"dec {row['decode_fps']:.0f}fps  "
                       f"ratio {row['compression_ratio']:.2f}x  "
+                      f"rand {rand_ms:.1f}ms  "
                       f"({elapsed:.1f}s)")
             else:
                 print("FAILED")
