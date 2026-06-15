@@ -17,7 +17,7 @@ pub struct AuraReader {
 impl AuraReader {
     pub fn open(path: &str) -> AuraResult<Self> {
         let file = OpenOptions::new().read(true).open(path)?;
-        let mut inner = BufReader::with_capacity(64 * 1024 * 1024, file);
+        let mut inner = BufReader::new(file);
 
         // read and validate file header
         let mut hdr_buf = [0u8; FILEHEADERSIZE];
